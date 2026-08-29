@@ -95,6 +95,10 @@ pub enum Request {
     Renew { interface: String },
     /// Re-run the reconciler now.
     Reconcile,
+    /// Stream DNS facts: a `snapshot` reply now, and another every time
+    /// they change, on the same connection, until the peer closes it. The
+    /// one request that holds a connection open. resolvd is the consumer.
+    Subscribe,
 }
 
 impl Request {
@@ -113,6 +117,9 @@ impl Request {
             }
             Request::Reconcile => {
                 w.write_map(1).write_str("query").write_str("reconcile");
+            }
+            Request::Subscribe => {
+                w.write_map(1).write_str("query").write_str("subscribe");
             }
         }
         w.to_bytes().expect("a request encodes")
@@ -134,6 +141,7 @@ impl Request {
         match query.as_deref() {
             Some("status") => Ok(Request::Status),
             Some("reconcile") => Ok(Request::Reconcile),
+            Some("subscribe") => Ok(Request::Subscribe),
             Some("renew") => Ok(Request::Renew {
                 interface: interface.ok_or(WireError::Missing("interface"))?,
             }),
@@ -145,7 +153,7 @@ impl Request {
     /// The right this request needs on the control object.
     pub fn required_right(&self) -> u32 {
         match self {
-            Request::Status => NETWORK_QUERY,
+            Request::Status | Request::Subscribe => NETWORK_QUERY,
             Request::Renew { .. } | Request::Reconcile => NETWORK_CONTROL,
         }
     }
@@ -195,11 +203,48 @@ impl Default for Level {
     }
 }
 
+/// What one interface contributes to name resolution. The unit of the
+/// netd -> resolvd channel; everything resolvd needs to route a query is
+/// here so it never reads `Profiles\`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DnsScope {
+    pub ifid: String,
+    pub name: String,
+    /// Servers in the order to try them: the profile's statics, then the
+    /// lease's when `UseFromDHCP`.
+    pub servers: Vec<String>,
+    /// Search domains, likewise: the profile's, then the lease's domain
+    /// search list or domain name.
+    pub domains: Vec<String>,
+    /// Every unicast address on the interface, CIDR form.
+    pub addresses: Vec<String>,
+    /// This interface's servers take names no domain matches. True when the
+    /// profile says `DNSDefaultRoute`, else when the interface carries a
+    /// default route.
+    pub default_route: bool,
+    /// While this interface is up, no other interface's servers are used
+    /// for anything (`DNSExclusive`; a VPN's "ultimate protection").
+    pub exclusive: bool,
+    pub metric: u32,
+    pub level: Level,
+}
+
+/// The `subscribe` reply body: the whole DNS picture. Sent whole every time
+/// rather than as deltas — it is a few hundred bytes, and a whole picture
+/// cannot be misapplied out of order.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Snapshot {
+    pub hostname: String,
+    /// Managed interfaces at `Link` or better, in metric order.
+    pub scopes: Vec<DnsScope>,
+}
+
 /// A reply from netd.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
     Ok,
     Status(Status),
+    Snapshot(Snapshot),
     Error(String),
 }
 
@@ -216,6 +261,24 @@ impl Reply {
                     .write_bool(false)
                     .write_str("error")
                     .write_str(message);
+            }
+            Reply::Snapshot(snapshot) => {
+                w.write_map(4).write_str("ok").write_bool(true);
+                w.write_str("kind").write_str("snapshot");
+                w.write_str("hostname").write_str(&snapshot.hostname);
+                w.write_str("scopes").write_array(snapshot.scopes.len() as u32);
+                for s in &snapshot.scopes {
+                    w.write_map(9);
+                    w.write_str("ifid").write_str(&s.ifid);
+                    w.write_str("name").write_str(&s.name);
+                    write_str_list(&mut w, "servers", &s.servers);
+                    write_str_list(&mut w, "domains", &s.domains);
+                    write_str_list(&mut w, "addresses", &s.addresses);
+                    w.write_str("default_route").write_bool(s.default_route);
+                    w.write_str("exclusive").write_bool(s.exclusive);
+                    w.write_str("metric").write_uint(u64::from(s.metric));
+                    w.write_str("level").write_str(s.level.as_str());
+                }
             }
             Reply::Status(status) => {
                 w.write_map(4).write_str("ok").write_bool(true);
@@ -237,13 +300,23 @@ impl Reply {
         let mut error = None;
         let mut status = Status::default();
         let mut has_status = false;
+        let mut snapshot = Snapshot::default();
+        let mut kind = None;
         let mut seen = Vec::new();
         for_each_field(&mut r, &mut seen, |key, r| {
             match key {
                 "ok" => ok = Some(r.read_bool()?),
                 "error" => error = Some(r.read_str()?.to_owned()),
+                "kind" => kind = Some(r.read_str()?.to_owned()),
+                "scopes" => {
+                    let n = r.read_array()?;
+                    for _ in 0..n {
+                        snapshot.scopes.push(decode_scope(r)?);
+                    }
+                }
                 "hostname" => {
                     status.hostname = r.read_str()?.to_owned();
+                    snapshot.hostname = status.hostname.clone();
                     has_status = true;
                 }
                 "level" => {
@@ -262,6 +335,7 @@ impl Reply {
             Ok(())
         })?;
         match ok {
+            Some(true) if kind.as_deref() == Some("snapshot") => Ok(Reply::Snapshot(snapshot)),
             Some(true) if has_status => Ok(Reply::Status(status)),
             Some(true) => Ok(Reply::Ok),
             Some(false) => Ok(Reply::Error(
@@ -321,6 +395,27 @@ fn encode_interface(w: &mut Writer, i: &InterfaceStatus) {
             w.write_str("state").write_str(&l.state);
         }
     }
+}
+
+fn decode_scope(r: &mut Reader<'_>) -> Result<DnsScope, WireError> {
+    let mut s = DnsScope::default();
+    let mut seen = Vec::new();
+    for_each_field(r, &mut seen, |key, r| {
+        match key {
+            "ifid" => s.ifid = r.read_str()?.to_owned(),
+            "name" => s.name = r.read_str()?.to_owned(),
+            "servers" => s.servers = read_str_list(r)?,
+            "domains" => s.domains = read_str_list(r)?,
+            "addresses" => s.addresses = read_str_list(r)?,
+            "default_route" => s.default_route = r.read_bool()?,
+            "exclusive" => s.exclusive = r.read_bool()?,
+            "metric" => s.metric = r.read_uint()? as u32,
+            "level" => s.level = Level::parse(r.read_str()?).unwrap_or(Level::Absent),
+            _ => r.skip()?,
+        }
+        Ok(())
+    })?;
+    Ok(s)
 }
 
 fn read_str_list(r: &mut Reader<'_>) -> Result<Vec<String>, WireError> {
@@ -486,6 +581,7 @@ mod tests {
             Request::Status,
             Request::Reconcile,
             Request::Renew { interface: "eth0".into() },
+            Request::Subscribe,
         ] {
             assert_eq!(Request::decode(&req.encode()).unwrap(), req);
         }
@@ -538,6 +634,27 @@ mod tests {
         let mut w = Writer::new();
         w.write_map(2).write_str("extra").write_uint(3).write_str("query").write_str("status");
         assert_eq!(Request::decode(&w.to_bytes().unwrap()).unwrap(), Request::Status);
+    }
+
+    #[test]
+    fn a_snapshot_round_trips() {
+        let reply = Reply::Snapshot(Snapshot {
+            hostname: "box".into(),
+            scopes: vec![DnsScope {
+                ifid: "id".into(),
+                name: "eth0".into(),
+                servers: vec!["10.0.2.3".into()],
+                domains: vec!["lan".into()],
+                addresses: vec!["10.0.2.15/24".into()],
+                default_route: true,
+                exclusive: false,
+                metric: 100,
+                level: Level::Routed,
+            }],
+        });
+        assert_eq!(Reply::decode(&reply.encode()).unwrap(), reply);
+        let empty = Reply::Snapshot(Snapshot::default());
+        assert_eq!(Reply::decode(&empty.encode()).unwrap(), empty);
     }
 
     #[test]

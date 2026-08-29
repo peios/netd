@@ -5,7 +5,6 @@
 //! any of them the loop re-derives what the network should be and reconciles
 //! the kernel to it; nothing is done imperatively in a handler.
 
-mod compat;
 mod config;
 mod control;
 mod dhcp;
@@ -19,12 +18,13 @@ mod reconcile;
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 use std::os::fd::AsRawFd;
-use std::os::unix::net::{UnixDatagram, UnixListener};
+use std::io::Write;
+use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::process::ExitCode;
 use std::time::Instant;
 
 use dhcp4::{Action, Client, Config as DhcpConfig, Lease};
-use libnetd::{InterfaceStatus, LeaseStatus, Level, Reply, Request, Status};
+use libnetd::{DnsScope, InterfaceStatus, LeaseStatus, Level, Reply, Request, Snapshot, Status};
 use peios::registry::Key;
 
 use config::{Config, OnLeaseExpiry, Profile};
@@ -113,8 +113,8 @@ impl Interface {
         if routed { Level::Routed } else { Level::Addressed }
     }
 
-    fn dns(&self) -> compat::DnsFacts {
-        let mut facts = compat::DnsFacts::default();
+    fn dns(&self) -> DnsFacts {
+        let mut facts = DnsFacts::default();
         if let Some(p) = &self.profile {
             facts.servers.extend(p.dns.servers.iter().copied());
             facts.search.extend(p.dns.search.iter().cloned());
@@ -133,6 +133,13 @@ impl Interface {
     }
 }
 
+/// What an interface contributes to name resolution, before routing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DnsFacts {
+    servers: Vec<Ipv4Addr>,
+    search: Vec<String>,
+}
+
 struct Netd {
     config: Config,
     control: control::ControlObject,
@@ -141,6 +148,9 @@ struct Netd {
     interfaces: BTreeMap<u32, Interface>,
     duid: Option<Vec<u8>>,
     hostname_set: Option<String>,
+    /// `subscribe` connections, each owed a snapshot whenever it changes.
+    subscribers: Vec<UnixStream>,
+    last_snapshot: Option<Snapshot>,
 }
 
 impl Netd {
@@ -284,28 +294,48 @@ impl Netd {
         }
     }
 
-    fn write_compat(&self) {
-        // Interfaces with a default route first, by metric; the rest after.
+    /// The DNS picture for resolvd: every managed interface with a link,
+    /// in metric order.
+    fn snapshot(&self) -> Snapshot {
         let mut ordered: Vec<&Interface> = self.interfaces.values().filter(|i| i.managed()).collect();
-        ordered.sort_by_key(|i| (i.level(&self.observed) != Level::Routed, i.metric()));
-        let mut facts = compat::DnsFacts::default();
+        ordered.sort_by_key(|i| (i.metric(), i.link.index));
+        let mut scopes = Vec::new();
         for i in ordered {
-            let f = i.dns();
-            facts.servers.extend(f.servers);
-            facts.search.extend(f.search);
+            let level = i.level(&self.observed);
+            if level == Level::Absent {
+                continue;
+            }
+            let facts = i.dns();
+            let dns = i.profile.as_ref().map(|p| &p.dns);
+            scopes.push(DnsScope {
+                ifid: i.ifid.clone(),
+                name: i.link.name.clone(),
+                servers: facts.servers.iter().map(|s| s.to_string()).collect(),
+                domains: facts.search,
+                addresses: self.observed.addresses_of(i.link.index).map(|a| format!("{}/{}", a.address, a.prefix)).collect(),
+                default_route: dns.and_then(|d| d.default_route).unwrap_or(level == Level::Routed),
+                exclusive: dns.is_some_and(|d| d.exclusive),
+                metric: i.metric(),
+                level,
+            });
         }
-        if facts.servers.is_empty() {
-            facts.servers.extend(self.config.resolver_servers.iter().copied());
-        }
-        facts.search.extend(self.config.resolver_search.iter().cloned());
-        facts.servers.dedup();
-        facts.search.dedup();
-        compat::write_if_changed("/etc/resolv.conf", &compat::resolv_conf(&facts));
-        let hostname = self.hostname_set.clone().unwrap_or_default();
-        compat::write_if_changed("/etc/hosts", &compat::hosts(&hostname, &self.config.hosts));
+        Snapshot { hostname: self.hostname_set.clone().unwrap_or_default(), scopes }
     }
 
-    /// The full pass: links, DHCP starts, reconcile, hostname, files.
+    /// Send the snapshot to every subscriber if it changed. A subscriber
+    /// that cannot take it (closed, or so far behind its buffer is full) is
+    /// dropped; it reconnects and gets a fresh one.
+    fn publish(&mut self) {
+        let snapshot = self.snapshot();
+        if self.last_snapshot.as_ref() == Some(&snapshot) {
+            return;
+        }
+        let bytes = Reply::Snapshot(snapshot.clone()).encode();
+        self.last_snapshot = Some(snapshot);
+        self.subscribers.retain_mut(|s| send_nonblocking(s, &bytes));
+    }
+
+    /// The full pass: links, DHCP starts, reconcile, hostname, publish.
     ///
     /// Repeated until a pass leaves the kernel unchanged, because applying
     /// changes what the next decisions see: bringing a link up gives it
@@ -322,7 +352,7 @@ impl Netd {
             }
         }
         self.apply_hostname();
-        self.write_compat();
+        self.publish();
     }
 
     fn status(&self) -> Status {
@@ -385,6 +415,14 @@ impl Netd {
             let now = Instant::now();
             let reply = match request {
                 Request::Status => Reply::Status(self.status()),
+                Request::Subscribe => {
+                    let snapshot = self.last_snapshot.clone().unwrap_or_else(|| self.snapshot());
+                    let bytes = Reply::Snapshot(snapshot).encode();
+                    if stream.set_nonblocking(true).is_ok() && send_nonblocking(&mut stream, &bytes) {
+                        self.subscribers.push(stream);
+                    }
+                    continue;
+                }
                 Request::Reconcile => {
                     self.converge(now);
                     Reply::Ok
@@ -469,6 +507,16 @@ impl Interface {
     }
 }
 
+/// Write one framed message to a nonblocking stream, whole or not at all.
+/// A subscriber reads a few hundred bytes a few times an hour; a full
+/// socket buffer means it is gone, not slow.
+fn send_nonblocking(stream: &mut UnixStream, payload: &[u8]) -> bool {
+    let mut frame = Vec::with_capacity(4 + payload.len());
+    frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    frame.extend_from_slice(payload);
+    stream.write_all(&frame).is_ok()
+}
+
 fn notify_ready() {
     let Some(path) = std::env::var_os("NOTIFY_SOCKET") else { return };
     let Ok(socket) = UnixDatagram::unbound() else {
@@ -519,6 +567,8 @@ fn main() -> ExitCode {
         interfaces: BTreeMap::new(),
         duid: None,
         hostname_set: None,
+        subscribers: Vec::new(),
+        last_snapshot: None,
     };
     match netd.rtnl.dump() {
         Ok(o) => netd.observed = o,
@@ -654,7 +704,7 @@ fn main() -> ExitCode {
         } else if reconcile {
             netd.reconcile_all();
             netd.apply_hostname();
-            netd.write_compat();
+            netd.publish();
         }
     }
 }
