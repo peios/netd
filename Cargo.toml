@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["libnetd", "dhcp4", "netd", "net"]
+
+# netd is its own workspace root, like authd and peios-rs.
+#
+#   libnetd  the control wire: paths, readiness levels, request/response codec.
+#            No I/O, no policy.
+#   dhcp4    a DHCPv4 client: packet codec and the RFC 2131 state machine as a
+#            pure, clock-injected type. No sockets. Its own crate so the state
+#            machine is tested without a network and could be reused.
+#   netd     the daemon. Runs as SYSTEM with the network privileges; the only
+#            member that touches netlink or the registry.
+#   net      the operator command. Talks to netd over the control socket and
+#            reads the registry; owns nothing.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+libc = "0.2"
+peios = { path = "../peios-rs/peios" }

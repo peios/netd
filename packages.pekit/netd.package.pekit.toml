@@ -1,0 +1,17 @@
+# netd — the Peios network manager.
+#
+# Runtime library dependencies (libpeios, glibc) are derived from the
+# binary's DT_NEEDED entries.
+
+[package]
+description = "Peios network manager - links, addresses, routes and DHCP from the registry"
+
+[files]
+":usr/sbin/netd" = "usr/sbin/netd"
+# The service definition and a default DHCP-everything profile. Both inert
+# until an image names them in [registry] autoapply; separately, because
+# starting netd and joining any network a cable is plugged into are two
+# decisions.
+":usr/share/regim/netd-service.reg" = "usr/share/regim/netd-service.reg"
+":usr/share/regim/netd-default-profile.reg" = "usr/share/regim/netd-default-profile.reg"
+":usr/share/regman/netd.regman" = "usr/share/regman/netd.regman"

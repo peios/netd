@@ -1,0 +1,16 @@
+# Base metadata for the packages carved from the netd build tree.
+#
+#   netd  the network manager. Runs as SYSTEM; owns links, addresses,
+#         routes and DHCP.
+#   net   its operator command. Owns nothing; asks over a socket.
+#
+# Two packages because an image that manages its network some other way (or
+# not at all) still wants `net status` to say so — and because a command
+# every user may run should not drag a SYSTEM daemon in with it.
+
+format = "peipkg"
+
+[package]
+version      = "{{version}}-1"
+architecture = "x86_64"
+license      = "MIT"
