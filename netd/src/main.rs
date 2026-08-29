@@ -306,10 +306,21 @@ impl Netd {
     }
 
     /// The full pass: links, DHCP starts, reconcile, hostname, files.
+    ///
+    /// Repeated until a pass leaves the kernel unchanged, because applying
+    /// changes what the next decisions see: bringing a link up gives it
+    /// carrier, and carrier is what starts DHCP. One pass would leave that
+    /// for a later event that, on a virtual NIC, has already happened.
     fn converge(&mut self, now: Instant) {
-        self.sync_links(now);
-        self.start_dhcp_where_due(now);
-        self.reconcile_all();
+        for _ in 0..4 {
+            self.sync_links(now);
+            self.start_dhcp_where_due(now);
+            let before = self.observed.clone();
+            self.reconcile_all();
+            if self.observed == before {
+                break;
+            }
+        }
         self.apply_hostname();
         self.write_compat();
     }
@@ -574,12 +585,12 @@ fn main() -> ExitCode {
         let mut reconcile = false;
 
         if fds[0].revents != 0 && netd.rtnl.drain_events() {
+            // Always converge: the state may already have been dumped after
+            // an apply without the decisions that follow from it being made.
             match netd.rtnl.dump() {
                 Ok(o) => {
-                    if o != netd.observed {
-                        netd.observed = o;
-                        converge = true;
-                    }
+                    netd.observed = o;
+                    converge = true;
                 }
                 Err(e) => log::warn(format_args!("netlink dump: {e}")),
             }
