@@ -1,0 +1,47 @@
+{
+  "_comment": [
+    "The netd service definition: what peinit starts, and how.",
+    "",
+    "Identity is SYSTEM. netd configures the kernel's network over rtnetlink",
+    "(CAP_NET_ADMIN -> a privilege only SYSTEM holds today), sends DHCP from",
+    "0.0.0.0 through a packet socket (CAP_NET_RAW, likewise) and binds udp/68,",
+    "which the shipped port reservation for 1-1023 grants to SYSTEM. When the",
+    "namespace object gives CAP_NET_ADMIN a descriptor home this can narrow.",
+    "",
+    "Readiness is Notify (0): netd sends READY=1 after its first pass over",
+    "the links -- every profile matched, every static address applied, every",
+    "DHCP client started -- not after any lease arrives. A lease is a network",
+    "event, not a startup one; services that need an address wait on the",
+    "readiness level (PEI-500) rather than on netd.",
+    "",
+    "RuntimeDirectories creates /run/netd for the control socket. netd stamps",
+    "its own descriptor on the directory and socket (Everyone may connect;",
+    "the control object decides what they may do), so the one peinit applies",
+    "is replaced -- the same arrangement lpsd has, recorded there.",
+    "",
+    "RestartPolicy is Always (2). A network manager that has exited is a",
+    "machine whose leases will silently expire; netd re-adopts kernel state",
+    "on restart, so a restart costs nothing visible.",
+    "",
+    "Shipped by the netd package into /usr/share/regim/; inert until an image",
+    "names it in [registry] autoapply."
+  ],
+  "keys": [
+    { "path": "Machine\\System" },
+    { "path": "Machine\\System\\Services" },
+    {
+      "path": "Machine\\System\\Services\\netd",
+      "values": [
+        { "name": "ImagePath", "type": "sz", "data": "/usr/sbin/netd" },
+        { "name": "Triggers", "type": "multi", "data": ["boot"] },
+        { "name": "Identity", "type": "sz", "data": "SYSTEM" },
+        { "name": "Readiness", "type": "dword", "data": 0 },
+        { "name": "RuntimeDirectories", "type": "multi", "data": ["netd"] },
+        { "name": "RestartPolicy", "type": "dword", "data": 2 },
+        { "name": "ErrorControl", "type": "dword", "data": 0 },
+        { "name": "DisplayName", "type": "sz", "data": "Network manager" },
+        { "name": "Description", "type": "sz", "data": "Links, addresses, routes and DHCP, reconciled from Machine\\System\\Network" }
+      ]
+    }
+  ]
+}

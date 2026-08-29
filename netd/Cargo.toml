@@ -1,0 +1,25 @@
+[package]
+name = "netd"
+description = "The Peios network manager: links, addresses, routes, DHCP, inventory."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "netd"
+path = "src/main.rs"
+
+[dependencies]
+libnetd = { path = "../libnetd" }
+dhcp4 = { path = "../dhcp4" }
+libc = { workspace = true }
+peios = { workspace = true }
+# rtnetlink marshalling. The rust-netlink family without the async runtime:
+# netd drives the socket itself from its poll loop.
+netlink-packet-core = "0.9"
+netlink-packet-route = "0.33"
+netlink-sys = "0.9"
+# Interface identity: a UUID-shaped digest of bus path and MAC. Same choice
+# authd made for service SIDs; pure computation.
+sha1 = "0.10"

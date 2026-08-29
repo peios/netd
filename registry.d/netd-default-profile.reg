@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "A default profile: every Ethernet interface gets DHCPv4, link-local when",
+    "nobody answers, and its DNS servers from the lease.",
+    "",
+    "Separate from the service definition on purpose. Starting netd and",
+    "deciding that unknown wired interfaces should join whatever network they",
+    "are plugged into are two decisions; a hardened image may want the first",
+    "without the second and ship profiles naming its interfaces instead.",
+    "",
+    "Priority 10 is low, so any profile an operator adds at the default 100",
+    "wins over it without needing to know this one exists."
+  ],
+  "keys": [
+    { "path": "Machine\\System" },
+    { "path": "Machine\\System\\Network" },
+    { "path": "Machine\\System\\Network\\Profiles" },
+    {
+      "path": "Machine\\System\\Network\\Profiles\\ethernet",
+      "values": [
+        { "name": "Priority", "type": "dword", "data": 10 },
+        { "name": "Managed", "type": "dword", "data": 1 }
+      ]
+    },
+    {
+      "path": "Machine\\System\\Network\\Profiles\\ethernet\\Match",
+      "values": [
+        { "name": "Type", "type": "sz", "data": "ether" }
+      ]
+    },
+    {
+      "path": "Machine\\System\\Network\\Profiles\\ethernet\\Address",
+      "values": [
+        { "name": "DHCP4", "type": "dword", "data": 1 },
+        { "name": "LinkLocal", "type": "dword", "data": 1 },
+        { "name": "OnLeaseExpiry", "type": "sz", "data": "Drop" }
+      ]
+    },
+    {
+      "path": "Machine\\System\\Network\\Profiles\\ethernet\\DNS",
+      "values": [
+        { "name": "UseFromDHCP", "type": "dword", "data": 1 }
+      ]
+    }
+  ]
+}

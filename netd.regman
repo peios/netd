@@ -1,0 +1,202 @@
+--- machine\system\network
+canonical: Machine\System\Network
+
+What this machine's network should be. netd reads the whole subtree on
+start and again on every change, and reconciles the kernel to it: links,
+addresses and routes on a managed interface are netd's, so an address added
+by hand is removed on the next pass. The registry is the truth; there is no
+other place the network is configured.
+
+`Profiles\` is the configuration operators write; `Interfaces\` is the
+inventory netd writes back (with one operator knob, `Enabled`). Nothing
+transient — leases, link state, learned DNS servers — is stored here; ask
+`net status` for that.
+
+Default security: inherits the Machine hive root (SYSTEM and Administrators
+full, Authenticated Users read).
+
+--- machine\system\network hostname
+canonical: Machine\System\Network Hostname
+type: REG_SZ
+default: (unset)
+applies: live
+
+The static hostname. netd calls `sethostname(2)` with it on start and on
+change. Absent, the hostname stays whatever it was — or, on a profile with
+`Address\AcceptHostname` on, whatever DHCP supplied.
+
+--- machine\system\network controlsecurity
+canonical: Machine\System\Network ControlSecurity
+type: REG_BINARY
+default: Everyone: NETWORK_QUERY; SYSTEM, Administrators: all
+applies: live
+
+The netd control object's descriptor, self-relative. Checked against the
+peer's token on every request to `/run/netd/control.sock`. Rights:
+`NETWORK_QUERY` (0x1) for `net status` and `net wait`; `NETWORK_CONTROL`
+(0x2) for `net renew` and `net reconcile`. Absent or malformed, the compiled
+default above applies. A capability SID for "may control networking" is the
+intended way to let a laptop's user renew without administering the box.
+
+--- machine\system\network\profiles
+canonical: Machine\System\Network\Profiles
+
+One subkey per profile. A profile is a *match rule* with the configuration
+to apply to whatever it matches; nothing is activated or selected, and the
+same profile may claim several interfaces. netd evaluates every profile
+against every interface, highest `Priority` first, and the first whose
+`Match\` keys all hold wins. A profile with no match keys matches nothing.
+
+--- machine\system\network\profiles\<name> priority
+canonical: Machine\System\Network\Profiles\<name> Priority
+type: REG_DWORD
+default: 100
+applies: live
+
+Higher wins. The shipped `ethernet` profile is 10, so anything an operator
+adds at the default outranks it.
+
+--- machine\system\network\profiles\<name> managed
+canonical: Machine\System\Network\Profiles\<name> Managed
+type: REG_DWORD
+default: 1
+valid: 0 or 1
+applies: live
+
+Off means netd never touches a matched interface: no addresses, no routes,
+no link changes, no DHCP. The way to hand an interface to something else.
+
+--- machine\system\network\profiles\<name>\match
+canonical: Machine\System\Network\Profiles\<name>\Match
+
+What the profile claims. Every value present must match; comparison is
+case-insensitive and one `*` is allowed anywhere. Values: `Name` (kernel
+name, e.g. `enp0s3`), `MAC` (`52:54:00:*`), `Path` (bus path as in
+`Interfaces\`, e.g. `pci-0000:00:03.0`), `Driver` (`virtio_net`), `Type`
+(`ether`, `wlan`, `loopback`, `other`).
+
+--- machine\system\network\profiles\<name>\address
+canonical: Machine\System\Network\Profiles\<name>\Address
+
+How the interface gets addresses and routes.
+
+--- machine\system\network\profiles\<name>\address dhcp4
+canonical: Machine\System\Network\Profiles\<name>\Address DHCP4
+type: REG_DWORD
+default: 1
+applies: live
+
+Run a DHCPv4 client on the interface once it has carrier. The lease's
+address, gateway, classless routes, DNS servers and MTU are applied; the
+lease is remembered under `/var/state/netd/leases/` so the next boot asks
+for the same address first.
+
+--- machine\system\network\profiles\<name>\address static
+canonical: Machine\System\Network\Profiles\<name>\Address Static
+type: REG_MULTI_SZ
+default: (none)
+applies: live
+
+Static addresses in CIDR form, e.g. `10.0.0.5/24`. Combined with a lease if
+DHCP4 is also on. A malformed entry is logged and skipped, not fatal.
+
+--- machine\system\network\profiles\<name>\address gateway
+canonical: Machine\System\Network\Profiles\<name>\Address Gateway
+type: REG_SZ
+default: (none)
+applies: live
+
+Default-route gateway. Overrides one supplied by DHCP.
+
+--- machine\system\network\profiles\<name>\address linklocal
+canonical: Machine\System\Network\Profiles\<name>\Address LinkLocal
+type: REG_DWORD
+default: 1
+applies: live
+
+When DHCP discovery goes unanswered, self-assign a 169.254/16 address so two
+machines on a cable with no server can still talk. Discovery continues in
+the background and the link-local address is dropped when a lease arrives.
+
+--- machine\system\network\profiles\<name>\address onleaseexpiry
+canonical: Machine\System\Network\Profiles\<name>\Address OnLeaseExpiry
+type: REG_SZ
+default: Drop
+valid: Drop or Keep
+applies: live
+
+What to do when a lease expires unrenewed. `Drop` removes the address — the
+server may already have given it to someone else, and an address conflict
+is worse than no address. `Keep` leaves it in place and is what most
+people secretly want; it risks exactly that conflict.
+
+--- machine\system\network\profiles\<name>\address routemetric
+canonical: Machine\System\Network\Profiles\<name>\Address RouteMetric
+type: REG_DWORD
+default: 100 for wired, 600 for wireless
+applies: live
+
+Metric on routes netd adds for this interface. Lower wins, so the defaults
+prefer a cable over WiFi when both are up.
+
+--- machine\system\network\profiles\<name>\address mtu
+canonical: Machine\System\Network\Profiles\<name>\Address MTU
+type: REG_DWORD
+default: (leave alone, or DHCP's)
+valid: 68 or more
+applies: live
+
+--- machine\system\network\profiles\<name>\address sendhostname
+canonical: Machine\System\Network\Profiles\<name>\Address SendHostname
+type: REG_DWORD
+default: 1
+applies: live
+
+Announce `Network\Hostname` in DHCP requests (option 12), so the server's
+DNS can register it.
+
+--- machine\system\network\profiles\<name>\address accepthostname
+canonical: Machine\System\Network\Profiles\<name>\Address AcceptHostname
+type: REG_DWORD
+default: 0
+applies: live
+
+Adopt a hostname the DHCP server supplies, when `Network\Hostname` is unset.
+
+--- machine\system\network\profiles\<name>\dns
+canonical: Machine\System\Network\Profiles\<name>\DNS
+
+DNS servers and search domains this interface contributes. Values:
+`Servers` (REG_MULTI_SZ of addresses), `SearchDomains` (REG_MULTI_SZ),
+`UseFromDHCP` (REG_DWORD, default 1: also take the lease's). Until resolvd
+these render into `/etc/resolv.conf`, interfaces with a default route
+first.
+
+--- machine\system\network\interfaces
+canonical: Machine\System\Network\Interfaces
+
+The inventory: one subkey per interface netd has seen, named by its
+interface id — a UUID derived from bus path and MAC, so the same card in
+the same slot keeps its key across boots and renames. netd writes `Name`,
+`MAC`, `Path`, `Driver`, `Type` and `Profile` (the match winner, or empty)
+here for operators to read. Do not configure interfaces here; write a
+profile.
+
+--- machine\system\network\interfaces\<ifid> enabled
+canonical: Machine\System\Network\Interfaces\<ifid> Enabled
+type: REG_DWORD
+default: 1
+applies: live
+
+The one operator value in the inventory: 0 takes the interface down and
+keeps it down regardless of its profile. Persistent, unlike `net`'s
+transient controls.
+
+--- machine\system\network\resolver
+canonical: Machine\System\Network\Resolver
+
+Name-resolution configuration. `Servers` and `SearchDomains`
+(REG_MULTI_SZ) are the fallback when no interface supplies any; `Hosts\`
+holds static names (value name = hostname, data = address). Until resolvd
+these render into `/etc/resolv.conf` and `/etc/hosts`; afterwards they are
+resolvd's alone.
