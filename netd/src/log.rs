@@ -1,11 +1,31 @@
-//! Lines on stderr. peinit captures them and forwards to the log collector;
-//! netd does not choose a format or a destination.
+//! Lines on stderr, mirrored to the kernel log.
+//!
+//! peinit captures stderr and forwards it to the log collector; on an image
+//! without one those lines vanish. A network manager's "why is there no
+//! address" is the kind of thing an operator needs from a serial console, so
+//! every line also goes to `/dev/kmsg`, where `dmesg` and the console find
+//! it. Best-effort: a machine where kmsg cannot be opened still runs.
 
 use std::fmt::Arguments;
 use std::io::Write;
+use std::sync::OnceLock;
+
+fn kmsg() -> Option<&'static std::fs::File> {
+    static KMSG: OnceLock<Option<std::fs::File>> = OnceLock::new();
+    KMSG.get_or_init(|| std::fs::OpenOptions::new().write(true).open("/dev/kmsg").ok()).as_ref()
+}
 
 fn emit(level: &str, args: Arguments<'_>) {
     let _ = writeln!(std::io::stderr(), "netd: {level}: {args}");
+    if let Some(mut k) = kmsg() {
+        // <6> is KERN_INFO; warnings and errors use <4> and <3>.
+        let priority = match level {
+            "error" => 3,
+            "warn" => 4,
+            _ => 6,
+        };
+        let _ = writeln!(k, "<{priority}>netd: {level}: {args}");
+    }
 }
 
 pub fn info(args: Arguments<'_>) {
