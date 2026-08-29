@@ -14,6 +14,19 @@ pub struct Record<'a> {
     pub profile: Option<&'a str>,
 }
 
+const ACCESS: KeyAccess = KeyAccess::QUERY_VALUE
+    .union(KeyAccess::SET_VALUE)
+    .union(KeyAccess::CREATE_SUB_KEY)
+    .union(KeyAccess::ENUMERATE_SUB_KEYS);
+
+fn open_or_create(path: &str) -> peios::Result<Key> {
+    Key::create(None, path, ACCESS, CreateFlags::empty(), None, None).map(|(k, _)| k)
+}
+
+fn open_or_create_under(parent: &Key, name: &str) -> peios::Result<Key> {
+    Key::create(Some(parent), name, ACCESS, CreateFlags::empty(), None, None).map(|(k, _)| k)
+}
+
 fn current(key: &Key, name: &str) -> Option<String> {
     let v = key.query_value(name.as_bytes(), None).ok()?;
     let end = v.data.iter().position(|&b| b == 0).unwrap_or(v.data.len());
@@ -34,18 +47,15 @@ fn set_sz(key: &Key, name: &str, value: &str) {
 /// Write the record. Returns `Enabled` (default on; created if absent so an
 /// operator can find the knob).
 pub fn sync(record: &Record<'_>) -> bool {
-    let path = format!("{NETWORK_KEY}\\Interfaces\\{}", record.ifid);
-    let key = match Key::create(
-        None,
-        &path,
-        KeyAccess::QUERY_VALUE | KeyAccess::SET_VALUE,
-        CreateFlags::empty(),
-        None,
-        None,
-    ) {
-        Ok((key, _)) => key,
+    // The registry creates one level per call, so open (or make) each
+    // ancestor in turn rather than asking for the leaf by full path.
+    let key = match open_or_create(NETWORK_KEY)
+        .and_then(|network| open_or_create_under(&network, "Interfaces"))
+        .and_then(|interfaces| open_or_create_under(&interfaces, record.ifid))
+    {
+        Ok(key) => key,
         Err(e) => {
-            log::warn(format_args!("inventory: could not open {path}: {e}"));
+            log::warn(format_args!("inventory: could not open Interfaces\\{}: {e}", record.ifid));
             return true;
         }
     };
