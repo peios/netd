@@ -130,21 +130,19 @@ pub fn interface_id(identity: &Identity, mac: Option<&[u8; 6]>, name: &str) -> S
 /// Read a link's hardware identity from sysfs.
 pub fn read_identity(name: &str) -> Identity {
     let device = std::path::PathBuf::from(format!("/sys/class/net/{name}/device"));
+    // Walk up from the device to the nearest PCI function (`dddd:bb:dd.f`)
+    // and name it `pci-<addr>`; a virtio device sits one level below its PCI
+    // function, a USB NIC several. A device with no PCI ancestor (virtual,
+    // platform) is named by its own leaf.
     let path = std::fs::canonicalize(&device)
         .ok()
         .and_then(|p| {
-            // /sys/devices/pci0000:00/0000:00:03.0 -> pci-0000:00:03.0
             let leaf = p.file_name()?.to_str()?.to_owned();
-            let bus = p
-                .parent()?
-                .file_name()?
-                .to_str()?
-                .trim_end_matches(|c: char| c.is_ascii_digit() || c == ':')
-                .to_owned();
-            Some(match bus.as_str() {
-                "" => leaf,
-                b => format!("{b}-{leaf}"),
-            })
+            let pci = p.ancestors().find_map(|a| {
+                let name = a.file_name()?.to_str()?;
+                is_pci_address(name).then(|| format!("pci-{name}"))
+            });
+            Some(pci.unwrap_or(leaf))
         })
         .unwrap_or_default();
     let driver = std::fs::read_link(device.join("driver"))
@@ -152,6 +150,16 @@ pub fn read_identity(name: &str) -> Identity {
         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
         .unwrap_or_default();
     Identity { path, driver }
+}
+
+/// `dddd:bb:dd.f`.
+fn is_pci_address(name: &str) -> bool {
+    let b = name.as_bytes();
+    b.len() == 12
+        && b[4] == b':'
+        && b[7] == b':'
+        && b[10] == b'.'
+        && [0, 1, 2, 3, 5, 6, 8, 9, 11].iter().all(|&i| b[i].is_ascii_hexdigit())
 }
 
 /// Whether sysfs says this link is wireless.
@@ -175,6 +183,13 @@ mod tests {
         assert_eq!(&a[14..15], "5");
         let other = interface_id(&id, Some(&[0x52, 0x54, 0, 1, 2, 4]), "eth0");
         assert_ne!(a, other);
+    }
+
+    #[test]
+    fn pci_addresses_are_recognised() {
+        assert!(is_pci_address("0000:00:04.0"));
+        assert!(!is_pci_address("virtio1"));
+        assert!(!is_pci_address("pci0000:00"));
     }
 
     #[test]
