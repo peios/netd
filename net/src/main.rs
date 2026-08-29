@@ -28,7 +28,7 @@ fn status() -> Result<Status, String> {
     match call(&Request::Status)? {
         Reply::Status(s) => Ok(s),
         Reply::Error(e) => Err(e),
-        Reply::Ok => Err("unexpected reply".into()),
+        Reply::Ok | Reply::Snapshot(_) => Err("unexpected reply".into()),
     }
 }
 
@@ -127,7 +127,7 @@ fn main() -> ExitCode {
                 eprintln!("net: {e}");
                 ExitCode::FAILURE
             }
-            Ok(Reply::Status(_)) => ExitCode::FAILURE,
+            Ok(Reply::Status(_) | Reply::Snapshot(_)) => ExitCode::FAILURE,
         },
         ["reconcile"] => match call(&Request::Reconcile) {
             Ok(Reply::Ok) => ExitCode::SUCCESS,
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
                 eprintln!("net: {e}");
                 ExitCode::FAILURE
             }
-            Ok(Reply::Status(_)) => ExitCode::FAILURE,
+            Ok(Reply::Status(_) | Reply::Snapshot(_)) => ExitCode::FAILURE,
         },
         ["profile", "list"] => profile_list(),
         ["wait", level] | ["wait", level, _] => {

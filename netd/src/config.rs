@@ -67,6 +67,11 @@ pub struct DnsConfig {
     pub servers: Vec<Ipv4Addr>,
     pub search: Vec<String>,
     pub use_from_dhcp: bool,
+    /// `DNSDefaultRoute`: unset means "when the interface has a default
+    /// route"; set, it says so outright either way.
+    pub default_route: Option<bool>,
+    /// `DNSExclusive`: while up, no other interface's servers are consulted.
+    pub exclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,10 +88,6 @@ pub struct Profile {
 pub struct Config {
     pub hostname: Option<String>,
     pub profiles: Vec<Profile>,
-    /// Fallback resolver servers when no interface supplies any.
-    pub resolver_servers: Vec<Ipv4Addr>,
-    pub resolver_search: Vec<String>,
-    pub hosts: Vec<(String, String)>,
     /// `ControlSecurity`, raw self-relative SD, if set.
     pub control_security: Option<Vec<u8>>,
 }
@@ -200,6 +201,8 @@ fn parse_profile(name: &str, key: &Key) -> Profile {
         dns.servers = read_multi(&d, "Servers").iter().filter_map(|s| s.parse().ok()).collect();
         dns.search = read_multi(&d, "SearchDomains");
         dns.use_from_dhcp = read_bool(&d, "UseFromDHCP", true);
+        dns.default_route = read_u32(&d, "DNSDefaultRoute").map(|v| v != 0);
+        dns.exclusive = read_bool(&d, "DNSExclusive", false);
     }
     Profile {
         name: name.to_owned(),
@@ -234,24 +237,6 @@ pub fn load() -> Config {
     }
     // Highest priority first; ties by name so the order is stable.
     config.profiles.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
-    if let Some(resolver) = open(Some(&root), "Resolver") {
-        config.resolver_servers =
-            read_multi(&resolver, "Servers").iter().filter_map(|s| s.parse().ok()).collect();
-        config.resolver_search = read_multi(&resolver, "SearchDomains");
-        if let Some(hosts) = open(Some(&resolver), "Hosts") {
-            for v in hosts.values(None) {
-                let Ok(v) = v else { continue };
-                let Ok(name) = String::from_utf8(v.name.clone()) else { continue };
-                if name.is_empty() {
-                    continue;
-                }
-                let value = RegValue { sequence: 0, ty: v.ty, data: v.data.clone(), layer: Vec::new() };
-                if let Some(addr) = sz(&value) {
-                    config.hosts.push((name, addr));
-                }
-            }
-        }
-    }
     config
 }
 

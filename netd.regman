@@ -166,11 +166,24 @@ Adopt a hostname the DHCP server supplies, when `Network\Hostname` is unset.
 --- machine\system\network\profiles\<name>\dns
 canonical: Machine\System\Network\Profiles\<name>\DNS
 
-DNS servers and search domains this interface contributes. Values:
-`Servers` (REG_MULTI_SZ of addresses), `SearchDomains` (REG_MULTI_SZ),
-`UseFromDHCP` (REG_DWORD, default 1: also take the lease's). Until resolvd
-these render into `/etc/resolv.conf`, interfaces with a default route
-first.
+What this interface contributes to name resolution. netd merges these with
+the lease and hands the result to resolvd over its control socket (the
+`subscribe` query); the registry never carries a learned server. Values:
+
+- `Servers` (REG_MULTI_SZ): addresses, tried in this order.
+- `SearchDomains` (REG_MULTI_SZ): domains this interface's servers answer
+  for; a single-label name is expanded with them.
+- `UseFromDHCP` (REG_DWORD, default 1): also take the lease's servers and
+  domain search list, after the static ones.
+- `DNSDefaultRoute` (REG_DWORD): whether this interface's servers take
+  names no interface's domain matches. Unset, that follows from having a
+  default route; set, it says so either way. Several claimants are ordered
+  by `RouteMetric`.
+- `DNSExclusive` (REG_DWORD, default 0): while this interface is up no
+  other interface's servers are consulted for anything — a VPN's
+  "ultimate protection", which also defeats a hostile LAN advertising the
+  VPN's own domain to win a tie. DNS only: traffic routing is netd's and
+  the firewall's.
 
 --- machine\system\network\interfaces
 canonical: Machine\System\Network\Interfaces
@@ -195,8 +208,5 @@ transient controls.
 --- machine\system\network\resolver
 canonical: Machine\System\Network\Resolver
 
-Name-resolution configuration. `Servers` and `SearchDomains`
-(REG_MULTI_SZ) are the fallback when no interface supplies any; `Hosts\`
-holds static names (value name = hostname, data = address). Until resolvd
-these render into `/etc/resolv.conf` and `/etc/hosts`; afterwards they are
-resolvd's alone.
+resolvd's configuration: fallback servers, static names, policy and its
+control object. netd does not read it; see resolvd.regman.
