@@ -16,15 +16,18 @@ fn kmsg() -> Option<&'static std::fs::File> {
 }
 
 fn emit(level: &str, args: Arguments<'_>) {
-    let _ = writeln!(std::io::stderr(), "netd: {level}: {args}");
+    let line = format!("netd: {level}: {args}\n");
+    let _ = std::io::stderr().write_all(line.as_bytes());
     if let Some(mut k) = kmsg() {
+        // One write per record: kmsg turns every write(2) into a line, so the
+        // text is assembled first rather than streamed piecewise.
         // <6> is KERN_INFO; warnings and errors use <4> and <3>.
         let priority = match level {
             "error" => 3,
             "warn" => 4,
             _ => 6,
         };
-        let _ = writeln!(k, "<{priority}>netd: {level}: {args}");
+        let _ = k.write_all(format!("<{priority}>{line}").as_bytes());
     }
 }
 
