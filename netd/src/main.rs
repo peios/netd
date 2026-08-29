@@ -176,13 +176,14 @@ impl Netd {
             let had_carrier = interface.link.carrier && interface.link.up;
             interface.link = link.clone();
             let profile = matching::select(&self.config.profiles, link, &interface.identity).cloned();
-            if profile.as_ref().map(|p| &p.name) != interface.profile.as_ref().map(|p| &p.name) {
+            if profile != interface.profile {
                 log::info(format_args!(
                     "interface {}: profile {}",
                     link.name,
                     profile.as_ref().map(|p| p.name.as_str()).unwrap_or("(none)")
                 ));
-                // A different profile means different intent; start over.
+                // Different intent — a different profile, or the same one
+                // edited — so start over rather than trust the old lease.
                 interface.stop_dhcp(now);
             }
             interface.profile = profile;
@@ -205,9 +206,17 @@ impl Netd {
     fn start_dhcp_where_due(&mut self, now: Instant) {
         let hostname = self.config.hostname.clone();
         for interface in self.interfaces.values_mut() {
-            let Some(profile) = interface.profile.as_ref() else { continue };
-            let wants = interface.managed() && interface.enabled && profile.address.dhcp4;
+            let Some((dhcp4, send_hostname)) =
+                interface.profile.as_ref().map(|p| (p.address.dhcp4, p.address.send_hostname))
+            else {
+                continue;
+            };
+            let wants = interface.managed() && interface.enabled && dhcp4;
             let can = interface.link.up && interface.link.carrier;
+            if interface.dhcp.is_some() && !(wants && can) {
+                log::info(format_args!("interface {}: dhcp stopping", interface.link.name));
+                interface.stop_dhcp(now);
+            }
             if wants && can && interface.dhcp.is_none() {
                 let Some(mac) = interface.link.mac else { continue };
                 let duid = self.duid.get_or_insert_with(|| dhcp::duid(&mac)).clone();
@@ -226,7 +235,7 @@ impl Netd {
                 let mut client = Client::new(DhcpConfig {
                     chaddr: mac,
                     client_id: dhcp::client_id(&duid, &interface.ifid),
-                    hostname: if profile.address.send_hostname { hostname.clone() } else { None },
+                    hostname: if send_hostname { hostname.clone() } else { None },
                     seed: u64::from_le_bytes(seed) ^ u64::from(interface.link.index),
                 });
                 let previous = dhcp::remembered(&interface.ifid);
@@ -244,6 +253,7 @@ impl Netd {
             if let Some(desired) = interface.desired() {
                 let ops = reconcile::plan(&self.observed, &desired);
                 if !ops.is_empty() {
+                    log::info(format_args!("interface {}: applying {ops:?}", interface.link.name));
                     reconcile::apply(&mut self.rtnl, &ops);
                 }
             }
@@ -581,13 +591,15 @@ fn main() -> ExitCode {
                         Ok(events) if !events.is_empty() => {
                             // Our own inventory writes come back here too; a
                             // reload is idempotent, so that is merely cheap.
+                            // Converge regardless: `Interfaces\<ifid> Enabled`
+                            // is read during the pass, not held in Config.
                             let fresh = config::load();
                             if fresh != netd.config {
                                 log::info(format_args!("configuration changed"));
                                 netd.control = control::ControlObject::new(fresh.control_security.as_deref());
                                 netd.config = fresh;
-                                converge = true;
                             }
+                            converge = true;
                         }
                         Ok(_) => {}
                         Err(e) => {
