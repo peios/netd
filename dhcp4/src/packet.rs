@@ -324,7 +324,7 @@ impl Lease {
         // is honoured only where it leaves room for the other.
         let t1 = o
             .u32(option::RENEWAL_T1)
-            .filter(|t| *t > 0 && t + 1 < lease_time - 1)
+            .filter(|t| *t > 0 && *t < lease_time - 2)
             .unwrap_or(lease_time / 2);
         let t2_default = ((u64::from(lease_time) * 7 / 8) as u32).max(t1 + 1).min(lease_time - 1);
         let t2 = o
