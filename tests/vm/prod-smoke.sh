@@ -1,5 +1,5 @@
-# Guest-side smoke test for netd on dist/prod. Run with
-#   dist/prod/drive.py --no-disk --share <dir> --timeout 230 <dir>/prod-smoke.sh
+# Guest-side smoke test for netd on a peiso-built image (dist/release). Run with
+#   dist/release/drive.py --no-disk --share <dir> --timeout 230 <dir>/prod-smoke.sh
 # and read <dir>/netd-report4.txt plus the netd: lines on the console.
 {
   echo "== service"; svctl status netd | head -3
