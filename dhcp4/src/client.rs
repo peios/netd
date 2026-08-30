@@ -251,6 +251,20 @@ impl Client {
             return Vec::new();
         }
         let Some(kind) = message.message_type() else { return Vec::new() };
+        // Once a server has been chosen, an ACK or NAK must come from it.
+        // A stranger who guessed the xid still cannot take the lease away.
+        if matches!(kind, MessageType::Ack | MessageType::Nak) {
+            let chosen = self
+                .lease
+                .as_ref()
+                .map(|l| l.server)
+                .or_else(|| self.offer.as_ref().and_then(|o| o.options.ipv4(option::SERVER_ID)));
+            if let Some(chosen) = chosen {
+                if message.options.ipv4(option::SERVER_ID) != Some(chosen) {
+                    return Vec::new();
+                }
+            }
+        }
         match (&self.state, kind) {
             (State::Selecting, MessageType::Offer) => {
                 if message.yiaddr.is_unspecified()
