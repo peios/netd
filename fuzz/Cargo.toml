@@ -1,0 +1,21 @@
+[package]
+name = "dhcp4-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+dhcp4 = { path = "../dhcp4" }
+
+[[bin]]
+name = "dhcp4_decode"
+path = "fuzz_targets/dhcp4_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

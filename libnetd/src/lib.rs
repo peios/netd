@@ -665,3 +665,52 @@ mod tests {
         assert_eq!(Level::parse("routed"), Some(Level::Routed));
     }
 }
+
+#[cfg(test)]
+mod fuzz_tests {
+    //! Noise and mutations through the control-socket decoders. Everyone
+    //! may connect to the socket, so the decoder sees untrusted bytes.
+    use super::*;
+
+    #[test]
+    fn fuzz_decoders_never_panic() {
+        let iters: usize = std::env::var("NETD_FUZZ_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000);
+        let mut x: u64 = 0x1234_5678_9abc_def1;
+        let mut next = move || {
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        };
+        let seeds = [
+            Request::Renew { interface: "eth0".into() }.encode(),
+            Request::Subscribe.encode(),
+            Reply::Snapshot(Snapshot { hostname: "h".into(), scopes: vec![DnsScope::default()] }).encode(),
+            Reply::Status(Status { interfaces: vec![InterfaceStatus::default()], ..Default::default() }).encode(),
+        ];
+        for _ in 0..iters {
+            let mut bytes = if next() % 4 == 0 {
+                (0..(next() % 200) as usize).map(|_| next() as u8).collect::<Vec<u8>>()
+            } else {
+                seeds[(next() % 4) as usize].clone()
+            };
+            for _ in 0..1 + next() % 5 {
+                if bytes.is_empty() {
+                    break;
+                }
+                let at = (next() % bytes.len() as u64) as usize;
+                match next() % 3 {
+                    0 => bytes[at] = next() as u8,
+                    1 => bytes.truncate(at),
+                    _ => bytes.insert(at, next() as u8),
+                }
+            }
+            if let Ok(r) = Request::decode(&bytes) {
+                assert_eq!(Request::decode(&r.encode()).unwrap(), r);
+            }
+            if let Ok(r) = Reply::decode(&bytes) {
+                let _ = Reply::decode(&r.encode()).unwrap();
+            }
+        }
+    }
+}

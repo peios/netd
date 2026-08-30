@@ -275,12 +275,18 @@ impl Lease {
         }
         let server = o.ipv4(option::SERVER_ID)?;
         let lease_time = o.u32(option::LEASE_TIME)?;
-        if lease_time == 0 {
+        // Shorter than a few seconds cannot hold T1 < T2 < lease, and is a
+        // server that wants us to spin: not a lease.
+        if lease_time < 4 {
             return None;
         }
+        // A mask must be contiguous ones; anything else is a malformed
+        // server and gets the classful default rather than a wrong prefix.
         let prefix = o
             .ipv4(option::SUBNET_MASK)
-            .map(|m| u32::from(m).count_ones() as u8)
+            .map(u32::from)
+            .filter(|m| *m != 0 && (m | (m - 1)) == u32::MAX)
+            .map(|m| m.count_ones() as u8)
             .unwrap_or_else(|| classful_prefix(address));
         let mut static_routes = Vec::new();
         if let Some(v) = o.get(option::CLASSLESS_STATIC_ROUTE) {
@@ -288,6 +294,11 @@ impl Lease {
             while i < v.len() {
                 let prefix = v[i];
                 i += 1;
+                // RFC 3442: 0..=32. A larger byte is a malformed option, and
+                // the whole option is discarded rather than guessed at.
+                if prefix > 32 {
+                    return None;
+                }
                 let octets = (prefix as usize).div_ceil(8);
                 let mut dst = [0u8; 4];
                 let d = v.get(i..i + octets)?;
@@ -297,7 +308,7 @@ impl Lease {
                 i += 4;
                 static_routes.push(StaticRoute {
                     destination: Ipv4Addr::from(dst),
-                    prefix: prefix.min(32),
+                    prefix,
                     gateway: Ipv4Addr::new(gw[0], gw[1], gw[2], gw[3]),
                 });
             }
@@ -312,10 +323,13 @@ impl Lease {
             .u32(option::RENEWAL_T1)
             .filter(|t| *t > 0 && *t < lease_time)
             .unwrap_or(lease_time / 2);
+        // The defaults must respect whichever of the pair the server did
+        // send: a T1 late in the lease with no T2 must not put T2 before it.
         let t2 = o
             .u32(option::REBINDING_T2)
             .filter(|t| *t > t1 && *t < lease_time)
-            .unwrap_or_else(|| (u64::from(lease_time) * 7 / 8) as u32);
+            .unwrap_or_else(|| ((u64::from(lease_time) * 7 / 8) as u32).clamp(t1 + 1, lease_time - 1));
+        let t1 = t1.min(t2 - 1);
         Some(Lease {
             address,
             prefix,
