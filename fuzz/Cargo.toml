@@ -8,12 +8,19 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 dhcp4 = { path = "../dhcp4" }
 
 [[bin]]
 name = "dhcp4_decode"
 path = "fuzz_targets/dhcp4_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "client_ops"
+path = "fuzz_targets/client_ops.rs"
 test = false
 doc = false
 bench = false

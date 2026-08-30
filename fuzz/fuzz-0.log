@@ -1,0 +1,52 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4000625864
+INFO: Loaded 1 modules   (4054 inline 8-bit counters): 4054 [0x5829ff60bce0, 0x5829ff60ccb6), 
+INFO: Loaded 1 PC tables (4054 PCs): 4054 [0x5829ff60ccb8,0x5829ff61ca18), 
+INFO:      489 files found in /home/jack/projects/peios/netd/fuzz/corpus/client_ops
+INFO: seed corpus: files: 489 min: 8b max: 414b total: 48619b rss: 33Mb
+
+thread '<unnamed>' (3619507) panicked at /home/jack/projects/peios/netd/dhcp4/src/packet.rs:327:35:
+attempt to add with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==3619507== ERROR: libFuzzer: deadly signal
+    #0 0x5829ff510591  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x11a591) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #1 0x5829ff5a386b  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1ad86b) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #2 0x5829ff550d49  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x15ad49) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #3 0x7f5fc3c45caf  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x45caf) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #4 0x7f5fc3ca642b  (/usr/lib/x86_64-linux-gnu/libc.so.6+0xa642b) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #5 0x7f5fc3c45b7d  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x45b7d) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #6 0x7f5fc3c288eb  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x288eb) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #7 0x5829ff5e7c39  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1f1c39) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #8 0x5829ff5e68c8  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1f08c8) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #9 0x5829ff549a44  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x153a44) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #10 0x5829ff5e6b51  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1f0b51) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #11 0x5829ff5d48d3  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1de8d3) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #12 0x5829ff5ceaf8  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1d8af8) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #13 0x5829ff5d4f8c  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1def8c) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #14 0x5829ff5f9a4b  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x203a4b) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #15 0x5829ff5fa4e8  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x2044e8) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #16 0x5829ff5b22b4  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1bc2b4) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #17 0x5829ff5bd4a6  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1c74a6) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #18 0x5829ff542955  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x14c955) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #19 0x5829ff548737  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x152737) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #20 0x5829ff5495d4  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1535d4) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #21 0x5829ff54a218  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x154218) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #22 0x5829ff548ccd  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x152ccd) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #23 0x5829ff5512fc  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x15b2fc) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #24 0x5829ff555e55  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x15fe55) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #25 0x5829ff559aa7  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x163aa7) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #26 0x5829ff55a087  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x164087) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #27 0x5829ff57ef11  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x188f11) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #28 0x5829ff5a76f6  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x1b16f6) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+    #29 0x7f5fc3c2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #30 0x7f5fc3c2a717  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 240c8909736b31f963346aca80667fd00c551e32)
+    #31 0x5829ff4720e4  (/home/jack/projects/peios/netd/fuzz/target/x86_64-unknown-linux-gnu/release/client_ops+0x7c0e4) (BuildId: 6f0e36b076e0d7ef4a91b85213243aab1a9321b5)
+
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+MS: 0 ; base unit: 0000000000000000000000000000000000000000
+0x53,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xb4,0xff,0xb4,0x8,0xfd,0x0,0x6a,0x21,0xff,0xd,0xd,0xd,0xf6,0xfb,0xff,0xff,0xff,0xff,0xff,0xfb,0x4f,
+S\377\377\377\377\377\377\377\377\377\377\377\377\377\377\264\377\264\010\375\000j!\377\015\015\015\366\373\377\377\377\377\377\373O
+artifact_prefix='/home/jack/projects/peios/netd/fuzz/artifacts/client_ops/'; Test unit written to /home/jack/projects/peios/netd/fuzz/artifacts/client_ops/crash-b2540c33f877707b5a1e7f3310afd36c30f556e7
+Base64: U///////////////////tP+0CP0AaiH/DQ0N9vv///////tP
