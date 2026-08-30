@@ -319,17 +319,18 @@ impl Lease {
         } else {
             Vec::new()
         };
+        // T1 < T2 < lease, whatever the server said. lease_time >= 4 here,
+        // so the defaults (lease/2, 7/8 lease) always fit; an explicit value
+        // is honoured only where it leaves room for the other.
         let t1 = o
             .u32(option::RENEWAL_T1)
-            .filter(|t| *t > 0 && *t < lease_time)
+            .filter(|t| *t > 0 && t + 1 < lease_time - 1)
             .unwrap_or(lease_time / 2);
-        // The defaults must respect whichever of the pair the server did
-        // send: a T1 late in the lease with no T2 must not put T2 before it.
+        let t2_default = ((u64::from(lease_time) * 7 / 8) as u32).max(t1 + 1).min(lease_time - 1);
         let t2 = o
             .u32(option::REBINDING_T2)
             .filter(|t| *t > t1 && *t < lease_time)
-            .unwrap_or_else(|| ((u64::from(lease_time) * 7 / 8) as u32).clamp(t1 + 1, lease_time - 1));
-        let t1 = t1.min(t2 - 1);
+            .unwrap_or(t2_default);
         Some(Lease {
             address,
             prefix,
