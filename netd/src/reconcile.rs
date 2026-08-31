@@ -79,10 +79,12 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
             prefix: a.prefix,
             deprecated: a.deprecated,
             no_prefix_route: a.no_prefix_route,
+            tentative: false,
         }))
         .collect();
     // The kernel's own IPv6 link-local is not ours to manage: every up
     // interface has one, made by the kernel, needed by neighbour discovery.
+    // Tentative is erased before comparing — DAD finishing is not a diff.
     let have: BTreeSet<Address> = observed
         .addresses_of(index)
         .filter(|a| match a.address {
@@ -90,6 +92,7 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
             IpAddr::V6(v6) => !is_v6_link_local(&v6),
         })
         .cloned()
+        .map(|a| Address { tentative: false, ..a })
         .collect();
     let wanted_key = |a: &Address| {
         want.iter()

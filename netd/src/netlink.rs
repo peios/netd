@@ -15,7 +15,8 @@ use netlink_packet_core::{
     NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::address::{
-    AddressAttribute, AddressFlags, AddressHeader, AddressMessage, AddressScope, CacheInfo,
+    AddressAttribute, AddressFlags, AddressHeader, AddressHeaderFlags, AddressMessage, AddressScope,
+    CacheInfo,
 };
 use netlink_packet_route::link::{
     LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage,
@@ -273,6 +274,10 @@ fn address_from_message(a: &AddressMessage) -> Option<Address> {
         prefix: a.header.prefix_len,
         deprecated: flags.contains(AddressFlags::Deprecated),
         no_prefix_route: flags.contains(AddressFlags::Noprefixroute),
+        // The header's eight bits carry it too; the attribute is authoritative
+        // when present and absent on kernels old enough not to send it.
+        tentative: flags.contains(AddressFlags::Tentative)
+            || a.header.flags.contains(AddressHeaderFlags::Tentative),
     })
 }
 
