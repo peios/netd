@@ -11,11 +11,15 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::os::fd::{AsRawFd, RawFd};
 
 use netlink_packet_core::{
-    NLM_F_ACK, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
-    NetlinkHeader, NetlinkMessage, NetlinkPayload,
+    NLM_F_ACK, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkHeader,
+    NetlinkMessage, NetlinkPayload,
 };
-use netlink_packet_route::address::{AddressAttribute, AddressHeader, AddressMessage, AddressScope};
-use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage};
+use netlink_packet_route::address::{
+    AddressAttribute, AddressFlags, AddressHeader, AddressMessage, AddressScope, CacheInfo,
+};
+use netlink_packet_route::link::{
+    LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage,
+};
 use netlink_packet_route::route::{
     RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteProtocol, RouteScope, RouteType,
 };
@@ -27,6 +31,8 @@ use crate::model::{Address, Link, LinkKind, Observed, Route};
 const RTNLGRP_LINK: u32 = 1;
 const RTNLGRP_IPV4_IFADDR: u32 = 5;
 const RTNLGRP_IPV4_ROUTE: u32 = 7;
+const RTNLGRP_IPV6_IFADDR: u32 = 9;
+const RTNLGRP_IPV6_ROUTE: u32 = 11;
 
 /// What netd asks of the kernel.
 pub trait Rtnl {
@@ -53,11 +59,21 @@ impl LinuxRtnl {
         socket.bind_auto()?;
         let mut events = Socket::new(NETLINK_ROUTE)?;
         events.bind_auto()?;
-        for group in [RTNLGRP_LINK, RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV4_ROUTE] {
+        for group in [
+            RTNLGRP_LINK,
+            RTNLGRP_IPV4_IFADDR,
+            RTNLGRP_IPV4_ROUTE,
+            RTNLGRP_IPV6_IFADDR,
+            RTNLGRP_IPV6_ROUTE,
+        ] {
             events.add_membership(group)?;
         }
         events.set_non_blocking(true)?;
-        Ok(LinuxRtnl { socket, events, sequence: 1 })
+        Ok(LinuxRtnl {
+            socket,
+            events,
+            sequence: 1,
+        })
     }
 
     /// Consume pending events; `true` if there were any.
@@ -119,7 +135,10 @@ impl LinuxRtnl {
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
                 let length = message.header.length as usize;
                 if length == 0 {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "zero-length netlink message"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "zero-length netlink message",
+                    ));
                 }
                 if message.header.sequence_number == sequence {
                     match message.payload {
@@ -157,11 +176,13 @@ impl LinuxRtnl {
         })
     }
 
-    fn dump_addresses(&mut self, out: &mut Observed) -> io::Result<()> {
+    fn dump_addresses(&mut self, out: &mut Observed, family: AddressFamily) -> io::Result<()> {
         let mut m = AddressMessage::default();
-        m.header.family = AddressFamily::Inet;
-        let sequence =
-            self.send(RouteNetlinkMessage::GetAddress(m), NLM_F_REQUEST | NLM_F_DUMP)?;
+        m.header.family = family;
+        let sequence = self.send(
+            RouteNetlinkMessage::GetAddress(m),
+            NLM_F_REQUEST | NLM_F_DUMP,
+        )?;
         self.receive(sequence, |m| {
             if let RouteNetlinkMessage::NewAddress(a) = m {
                 if let Some(address) = address_from_message(&a) {
@@ -171,11 +192,10 @@ impl LinuxRtnl {
         })
     }
 
-    fn dump_routes(&mut self, out: &mut Observed) -> io::Result<()> {
+    fn dump_routes(&mut self, out: &mut Observed, family: AddressFamily) -> io::Result<()> {
         let mut m = RouteMessage::default();
-        m.header.address_family = AddressFamily::Inet;
-        let sequence =
-            self.send(RouteNetlinkMessage::GetRoute(m), NLM_F_REQUEST | NLM_F_DUMP)?;
+        m.header.address_family = family;
+        let sequence = self.send(RouteNetlinkMessage::GetRoute(m), NLM_F_REQUEST | NLM_F_DUMP)?;
         self.receive(sequence, |m| {
             if let RouteNetlinkMessage::NewRoute(r) = m {
                 if let Some(route) = route_from_message(&r) {
@@ -208,7 +228,11 @@ fn link_from_message(l: &LinkMessage) -> Link {
     let kind = if loopback {
         LinkKind::Loopback
     } else if l.header.link_layer_type == LinkLayerType::Ether {
-        if crate::model::is_wireless(&name) { LinkKind::Wireless } else { LinkKind::Ether }
+        if crate::model::is_wireless(&name) {
+            LinkKind::Wireless
+        } else {
+            LinkKind::Ether
+        }
     } else {
         LinkKind::Other
     };
@@ -228,31 +252,48 @@ fn link_from_message(l: &LinkMessage) -> Link {
 fn address_from_message(a: &AddressMessage) -> Option<Address> {
     let mut local = None;
     let mut address = None;
+    let mut flags = AddressFlags::empty();
     for attribute in &a.attributes {
         match attribute {
             AddressAttribute::Local(ip) => local = Some(*ip),
             AddressAttribute::Address(ip) => address = Some(*ip),
+            AddressAttribute::Flags(f) => flags = *f,
             _ => {}
         }
     }
     // For IPv4 the interface's own address is IFA_LOCAL; IFA_ADDRESS is the
-    // peer on point-to-point links.
-    let ip = local.or(address)?;
-    Some(Address { index: a.header.index, address: ip, prefix: a.header.prefix_len })
+    // peer on point-to-point links. IPv6 carries only IFA_ADDRESS.
+    let ip = match local.or(address)? {
+        ip @ IpAddr::V6(_) => address.unwrap_or(ip),
+        ip => ip,
+    };
+    Some(Address {
+        index: a.header.index,
+        address: ip,
+        prefix: a.header.prefix_len,
+        deprecated: flags.contains(AddressFlags::Deprecated),
+        no_prefix_route: flags.contains(AddressFlags::Noprefixroute),
+    })
 }
 
 fn route_from_message(r: &RouteMessage) -> Option<Route> {
     if r.header.table != RouteHeader::RT_TABLE_MAIN || r.header.kind != RouteType::Unicast {
         return None;
     }
-    let mut destination = Ipv4Addr::UNSPECIFIED;
+    let mut destination = match r.header.address_family {
+        AddressFamily::Inet => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        AddressFamily::Inet6 => IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
+        _ => return None,
+    };
     let mut gateway = None;
     let mut oif = None;
     let mut metric = 0;
     for attribute in &r.attributes {
         match attribute {
-            RouteAttribute::Destination(RouteAddress::Inet(d)) => destination = *d,
-            RouteAttribute::Gateway(RouteAddress::Inet(g)) => gateway = Some(*g),
+            RouteAttribute::Destination(RouteAddress::Inet(d)) => destination = IpAddr::V4(*d),
+            RouteAttribute::Destination(RouteAddress::Inet6(d)) => destination = IpAddr::V6(*d),
+            RouteAttribute::Gateway(RouteAddress::Inet(g)) => gateway = Some(IpAddr::V4(*g)),
+            RouteAttribute::Gateway(RouteAddress::Inet6(g)) => gateway = Some(IpAddr::V6(*g)),
             RouteAttribute::Oif(i) => oif = Some(*i),
             RouteAttribute::Priority(p) => metric = *p,
             _ => {}
@@ -269,47 +310,96 @@ fn route_from_message(r: &RouteMessage) -> Option<Route> {
 }
 
 fn address_message(address: &Address, broadcast: Option<Ipv4Addr>) -> AddressMessage {
-    let IpAddr::V4(ip) = address.address else {
-        unreachable!("netd v1 manages IPv4 addresses only")
-    };
-    let mut m = AddressMessage::default();
-    m.header = AddressHeader {
-        family: AddressFamily::Inet,
-        prefix_len: address.prefix,
-        flags: Default::default(),
-        scope: if ip.is_link_local() { AddressScope::Link } else { AddressScope::Universe },
-        index: address.index,
-    };
-    m.attributes.push(AddressAttribute::Local(IpAddr::V4(ip)));
-    m.attributes.push(AddressAttribute::Address(IpAddr::V4(ip)));
-    let broadcast = broadcast.unwrap_or_else(|| {
-        let mask = if address.prefix == 0 { 0 } else { u32::MAX << (32 - u32::from(address.prefix)) };
-        Ipv4Addr::from(u32::from(ip) | !mask)
-    });
-    if address.prefix < 31 {
-        m.attributes.push(AddressAttribute::Broadcast(broadcast));
+    match address.address {
+        IpAddr::V4(ip) => {
+            let mut m = AddressMessage::default();
+            m.header = AddressHeader {
+                family: AddressFamily::Inet,
+                prefix_len: address.prefix,
+                flags: Default::default(),
+                scope: if ip.is_link_local() {
+                    AddressScope::Link
+                } else {
+                    AddressScope::Universe
+                },
+                index: address.index,
+            };
+            m.attributes.push(AddressAttribute::Local(IpAddr::V4(ip)));
+            m.attributes.push(AddressAttribute::Address(IpAddr::V4(ip)));
+            let broadcast = broadcast.unwrap_or_else(|| {
+                let mask = if address.prefix == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - u32::from(address.prefix))
+                };
+                Ipv4Addr::from(u32::from(ip) | !mask)
+            });
+            if address.prefix < 31 {
+                m.attributes.push(AddressAttribute::Broadcast(broadcast));
+            }
+            m
+        }
+        IpAddr::V6(ip) => {
+            let mut m = AddressMessage::default();
+            m.header = AddressHeader {
+                family: AddressFamily::Inet6,
+                prefix_len: address.prefix,
+                flags: Default::default(),
+                scope: if crate::model::is_v6_link_local(&ip) {
+                    AddressScope::Link
+                } else {
+                    AddressScope::Universe
+                },
+                index: address.index,
+            };
+            m.attributes.push(AddressAttribute::Address(IpAddr::V6(ip)));
+            if address.no_prefix_route {
+                m.attributes
+                    .push(AddressAttribute::Flags(AddressFlags::Noprefixroute));
+            }
+            // Lifetimes are netd's to manage, so the kernel is told forever
+            // — except that deprecation *is* expressed as a lifetime: a
+            // preferred lifetime of zero is how an address is kept for
+            // standing connections while source selection stops choosing
+            // it. Always explicit, so a replace changes it back.
+            let mut cache = CacheInfo::default();
+            cache.ifa_preferred = if address.deprecated { 0 } else { u32::MAX };
+            cache.ifa_valid = u32::MAX;
+            m.attributes.push(AddressAttribute::CacheInfo(cache));
+            m
+        }
     }
-    m
 }
 
 fn route_message(route: &Route) -> RouteMessage {
     let mut m = RouteMessage::default();
     m.header = RouteHeader {
-        address_family: AddressFamily::Inet,
+        address_family: match route.destination {
+            IpAddr::V4(_) => AddressFamily::Inet,
+            IpAddr::V6(_) => AddressFamily::Inet6,
+        },
         destination_prefix_length: route.prefix,
         source_prefix_length: 0,
         tos: 0,
         table: RouteHeader::RT_TABLE_MAIN,
         protocol: RouteProtocol::from(route.protocol),
-        scope: if route.gateway.is_some() { RouteScope::Universe } else { RouteScope::Link },
+        scope: if route.gateway.is_some() {
+            RouteScope::Universe
+        } else {
+            RouteScope::Link
+        },
         kind: RouteType::Unicast,
         flags: Default::default(),
     };
     if route.prefix > 0 {
-        m.attributes.push(RouteAttribute::Destination(RouteAddress::Inet(route.destination)));
+        m.attributes
+            .push(RouteAttribute::Destination(RouteAddress::from(
+                route.destination,
+            )));
     }
     if let Some(g) = route.gateway {
-        m.attributes.push(RouteAttribute::Gateway(RouteAddress::Inet(g)));
+        m.attributes
+            .push(RouteAttribute::Gateway(RouteAddress::from(g)));
     }
     m.attributes.push(RouteAttribute::Oif(route.index));
     if route.metric > 0 {
@@ -322,8 +412,10 @@ impl Rtnl for LinuxRtnl {
     fn dump(&mut self) -> io::Result<Observed> {
         let mut out = Observed::default();
         self.dump_links(&mut out)?;
-        self.dump_addresses(&mut out)?;
-        self.dump_routes(&mut out)?;
+        for family in [AddressFamily::Inet, AddressFamily::Inet6] {
+            self.dump_addresses(&mut out, family)?;
+            self.dump_routes(&mut out, family)?;
+        }
         Ok(out)
     }
 
@@ -333,7 +425,11 @@ impl Rtnl for LinuxRtnl {
             interface_family: AddressFamily::Unspec,
             index,
             link_layer_type: LinkLayerType::Netrom,
-            flags: if up { LinkFlags::Up } else { LinkFlags::empty() },
+            flags: if up {
+                LinkFlags::Up
+            } else {
+                LinkFlags::empty()
+            },
             change_mask: LinkFlags::Up,
         };
         self.request(RouteNetlinkMessage::SetLink(m), 0)
@@ -348,7 +444,10 @@ impl Rtnl for LinuxRtnl {
 
     fn add_address(&mut self, address: &Address, broadcast: Option<Ipv4Addr>) -> io::Result<()> {
         let m = address_message(address, broadcast);
-        self.request(RouteNetlinkMessage::NewAddress(m), NLM_F_CREATE | NLM_F_REPLACE)
+        self.request(
+            RouteNetlinkMessage::NewAddress(m),
+            NLM_F_CREATE | NLM_F_REPLACE,
+        )
     }
 
     fn del_address(&mut self, address: &Address) -> io::Result<()> {

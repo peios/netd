@@ -23,3 +23,5 @@ netlink-sys = "0.9"
 # Interface identity: a UUID-shaped digest of bus path and MAC. Same choice
 # authd made for service SIDs; pure computation.
 sha1 = "0.10"
+ndp = { version = "0.1.0", path = "../ndp" }
+dhcp6 = { version = "0.1.0", path = "../dhcp6" }

@@ -10,6 +10,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 dhcp4 = { path = "../dhcp4" }
+dhcp6 = { path = "../dhcp6" }
+ndp = { path = "../ndp" }
 
 [[bin]]
 name = "dhcp4_decode"
@@ -21,6 +23,27 @@ bench = false
 [[bin]]
 name = "client_ops"
 path = "fuzz_targets/client_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ndp_decode"
+path = "fuzz_targets/ndp_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ndp_engine_ops"
+path = "fuzz_targets/ndp_engine_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dhcp6_client_ops"
+path = "fuzz_targets/dhcp6_client_ops.rs"
 test = false
 doc = false
 bench = false

@@ -102,6 +102,10 @@ name = "dhcp4"
 version = "0.1.0"
 
 [[package]]
+name = "dhcp6"
+version = "0.1.0"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -184,6 +188,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "ndp"
+version = "0.1.0"
+dependencies = [
+ "sha1",
+]
+
+[[package]]
 name = "net"
 version = "0.1.0"
 dependencies = [
@@ -196,8 +207,10 @@ name = "netd"
 version = "0.1.0"
 dependencies = [
  "dhcp4",
+ "dhcp6",
  "libc",
  "libnetd",
+ "ndp",
  "netlink-packet-core",
  "netlink-packet-route",
  "netlink-sys",

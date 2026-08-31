@@ -1,0 +1,13 @@
+[package]
+name = "ndp"
+description = "IPv6 neighbour discovery for a host: RA parsing, SLAAC with stable-privacy addresses, free of I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# RFC 7217 stable-privacy interface identifiers are a keyed digest; the
+# secrecy of the key carries the security, and the RFC names SHA-1 as an
+# acceptable PRF. Same crate the daemon already uses for interface ids.
+sha1 = "0.10"
