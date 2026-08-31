@@ -163,6 +163,9 @@ struct Netd {
     /// `subscribe` connections, each owed a snapshot whenever it changes.
     subscribers: Vec<UnixStream>,
     last_snapshot: Option<Snapshot>,
+    /// The machine level last published to peinit, so a level is sent on
+    /// change and not on every pass.
+    last_level: Option<Level>,
 }
 
 impl Netd {
@@ -339,6 +342,17 @@ impl Netd {
     /// that cannot take it (closed, or so far behind its buffer is full) is
     /// dropped; it reconnects and gets a fresh one.
     fn publish(&mut self) {
+        // The machine level goes to peinit whether or not the DNS snapshot
+        // changed: an interface losing its default route changes the level
+        // without necessarily changing the servers, and a dependent
+        // waiting on `netd:routed` needs to hear about exactly that.
+        let level = self.status().level;
+        if self.last_level != Some(level) {
+            self.last_level = Some(level);
+            log::info(format_args!("machine level is {}", level.as_str()));
+            notify_level(level);
+        }
+
         let snapshot = self.snapshot();
         if self.last_snapshot.as_ref() == Some(&snapshot) {
             return;
@@ -531,13 +545,34 @@ fn send_nonblocking(stream: &mut UnixStream, payload: &[u8]) -> bool {
 }
 
 fn notify_ready() {
+    notify(b"READY=1");
+}
+
+/// Publish the machine's readiness level to peinit.
+///
+/// This is what makes `Requires = ["netd:routed"]` work: peinit records
+/// the level against this service and holds a dependent until it matches.
+/// It travels on the notify socket netd already has rather than over
+/// netd's own control socket, so PID 1 needs no knowledge of libnetd and
+/// no subscription to maintain.
+///
+/// Sent on every change and only on a change. The channel is lossy by
+/// design (PSPU §4.16) and the manager does not acknowledge, so a level
+/// that mattered and was dropped would be re-sent by the next change —
+/// and the level is a statement of a current condition, which is exactly
+/// the shape that spec requires of a field on this channel.
+fn notify_level(level: Level) {
+    notify(format!("LEVEL={}", level.as_str()).as_bytes());
+}
+
+fn notify(payload: &[u8]) {
     let Some(path) = std::env::var_os("NOTIFY_SOCKET") else { return };
     let Ok(socket) = UnixDatagram::unbound() else {
         log::warn(format_args!("could not create the readiness socket"));
         return;
     };
-    if let Err(e) = socket.send_to(b"READY=1", &path) {
-        log::warn(format_args!("could not notify readiness: {e}"));
+    if let Err(e) = socket.send_to(payload, &path) {
+        log::warn(format_args!("could not notify: {e}"));
     }
 }
 
@@ -582,6 +617,7 @@ fn main() -> ExitCode {
         hostname_set: None,
         subscribers: Vec::new(),
         last_snapshot: None,
+        last_level: None,
     };
     match netd.rtnl.dump() {
         Ok(o) => netd.observed = o,
