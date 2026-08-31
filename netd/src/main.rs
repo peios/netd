@@ -129,6 +129,14 @@ impl Interface {
                 }
             }
         }
+        // Time servers are reported whatever `use_from_dhcp` says about
+        // *DNS*: that switch is about name resolution, and whether to
+        // believe a lease's time servers is timed's decision, made against
+        // its own registry value. A snapshot describes what the network
+        // said, not what anyone has agreed to act on.
+        if let Some(l) = &self.lease {
+            facts.ntp.extend(l.ntp.iter().copied());
+        }
         facts
     }
 }
@@ -138,6 +146,10 @@ impl Interface {
 struct DnsFacts {
     servers: Vec<Ipv4Addr>,
     search: Vec<String>,
+    /// DHCP option 42, carried here rather than in its own structure
+    /// because it arrives on the same lease and travels in the same
+    /// snapshot. Nothing in netd acts on it.
+    ntp: Vec<Ipv4Addr>,
 }
 
 struct Netd {
@@ -312,6 +324,7 @@ impl Netd {
                 name: i.link.name.clone(),
                 servers: facts.servers.iter().map(|s| s.to_string()).collect(),
                 domains: facts.search,
+                ntp: facts.ntp.iter().map(|s| s.to_string()).collect(),
                 addresses: self.observed.addresses_of(i.link.index).map(|a| format!("{}/{}", a.address, a.prefix)).collect(),
                 default_route: dns.and_then(|d| d.default_route).unwrap_or(level == Level::Routed),
                 exclusive: dns.is_some_and(|d| d.exclusive),

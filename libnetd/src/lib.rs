@@ -216,6 +216,14 @@ pub struct DnsScope {
     /// Search domains, likewise: the profile's, then the lease's domain
     /// search list or domain name.
     pub domains: Vec<String>,
+    /// Time servers this interface's lease offered (DHCP option 42).
+    ///
+    /// Reported unconditionally, because a snapshot describes what the
+    /// network *said*. Whether to believe it is timed's decision, gated on
+    /// `Machine\System\Time UseFromDHCP`, which is off by default — on a
+    /// network you do not control, the DHCP server's idea of the time is
+    /// the attacker's idea of the time.
+    pub ntp: Vec<String>,
     /// Every unicast address on the interface, CIDR form.
     pub addresses: Vec<String>,
     /// This interface's servers take names no domain matches. True when the
@@ -268,11 +276,12 @@ impl Reply {
                 w.write_str("hostname").write_str(&snapshot.hostname);
                 w.write_str("scopes").write_array(snapshot.scopes.len() as u32);
                 for s in &snapshot.scopes {
-                    w.write_map(9);
+                    w.write_map(10);
                     w.write_str("ifid").write_str(&s.ifid);
                     w.write_str("name").write_str(&s.name);
                     write_str_list(&mut w, "servers", &s.servers);
                     write_str_list(&mut w, "domains", &s.domains);
+                    write_str_list(&mut w, "ntp", &s.ntp);
                     write_str_list(&mut w, "addresses", &s.addresses);
                     w.write_str("default_route").write_bool(s.default_route);
                     w.write_str("exclusive").write_bool(s.exclusive);
@@ -406,6 +415,7 @@ fn decode_scope(r: &mut Reader<'_>) -> Result<DnsScope, WireError> {
             "name" => s.name = r.read_str()?.to_owned(),
             "servers" => s.servers = read_str_list(r)?,
             "domains" => s.domains = read_str_list(r)?,
+            "ntp" => s.ntp = read_str_list(r)?,
             "addresses" => s.addresses = read_str_list(r)?,
             "default_route" => s.default_route = r.read_bool()?,
             "exclusive" => s.exclusive = r.read_bool()?,
@@ -653,6 +663,7 @@ mod tests {
                 name: "eth0".into(),
                 servers: vec!["10.0.2.3".into()],
                 domains: vec!["lan".into()],
+                ntp: vec!["10.0.2.4".into()],
                 addresses: vec!["10.0.2.15/24".into()],
                 default_route: true,
                 exclusive: false,
