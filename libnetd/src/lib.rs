@@ -420,7 +420,15 @@ fn decode_scope(r: &mut Reader<'_>) -> Result<DnsScope, WireError> {
 
 fn read_str_list(r: &mut Reader<'_>) -> Result<Vec<String>, WireError> {
     let n = r.read_array()?;
-    let mut out = Vec::with_capacity(n);
+    // Never allocate on a count the peer chose. An array header can claim
+    // four billion elements in five bytes, and reserving for that is a
+    // remote out-of-memory kill from a message smaller than this comment.
+    // A real element costs at least one byte, so a count past what is left
+    // in the message is a lie.
+    if n > r.remaining() {
+        return Err(WireError::TooLarge(n));
+    }
+    let mut out = Vec::new();
     for _ in 0..n {
         out.push(r.read_str()?.to_owned());
     }
@@ -655,6 +663,29 @@ mod tests {
         assert_eq!(Reply::decode(&reply.encode()).unwrap(), reply);
         let empty = Reply::Snapshot(Snapshot::default());
         assert_eq!(Reply::decode(&empty.encode()).unwrap(), empty);
+    }
+
+    #[test]
+    fn an_array_count_the_message_cannot_hold_is_refused() {
+        // Built by hand, because the writer will not emit a message whose
+        // declared count does not match what follows — which is exactly the
+        // message an attacker sends. A snapshot holding one scope whose
+        // server list declares four billion entries in five bytes.
+        // Reserving for that is a remote out-of-memory kill on a socket
+        // every program on the machine may connect to.
+        let mut bytes = vec![0x82];
+        bytes.push(0xa0 | 4);
+        bytes.extend_from_slice(b"kind");
+        bytes.push(0xa0 | 8);
+        bytes.extend_from_slice(b"snapshot");
+        bytes.push(0xa0 | 6);
+        bytes.extend_from_slice(b"scopes");
+        bytes.push(0x91); // one scope
+        bytes.push(0x81); // a map of one
+        bytes.push(0xa0 | 7);
+        bytes.extend_from_slice(b"servers");
+        bytes.extend_from_slice(&[0xdd, 0xff, 0xff, 0xff, 0xff]);
+        assert!(matches!(Reply::decode(&bytes), Err(WireError::TooLarge(_))), "{:?}", Reply::decode(&bytes));
     }
 
     #[test]
