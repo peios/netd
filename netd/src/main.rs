@@ -896,10 +896,13 @@ impl Interface {
     }
 }
 
-/// The kernel-made link-local address of an interface, if it has one yet.
+/// The kernel-made link-local address of an interface, once duplicate
+/// address detection has finished with it. A tentative link-local cannot
+/// source a solicitation, so router discovery waits for the kernel's
+/// address event rather than sending into an EADDRNOTAVAIL.
 fn link_local_of(observed: &Observed, index: u32) -> Option<Ipv6Addr> {
     observed.addresses_of(index).find_map(|a| match a.address {
-        IpAddr::V6(v6) if is_v6_link_local(&v6) => Some(v6),
+        IpAddr::V6(v6) if is_v6_link_local(&v6) && !a.tentative => Some(v6),
         _ => None,
     })
 }

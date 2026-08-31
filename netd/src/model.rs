@@ -56,6 +56,10 @@ pub struct Address {
     /// from this address. Set on SLAAC addresses whose prefix is not
     /// on-link.
     pub no_prefix_route: bool,
+    /// `IFA_F_TENTATIVE`: duplicate address detection is still running, so
+    /// nothing may send from it yet. Observed only, never desired; the
+    /// reconciler compares with it erased.
+    pub tentative: bool,
 }
 
 impl Address {
@@ -66,6 +70,7 @@ impl Address {
             prefix,
             deprecated: false,
             no_prefix_route: false,
+            tentative: false,
         }
     }
 
