@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["libnetd", "dhcp4", "netd", "net"]
+members = ["libnetd", "dhcp4", "dhcp6", "ndp", "netd", "net"]
 
 # netd is its own workspace root, like authd and peios-rs.
 #
@@ -9,6 +9,9 @@ members = ["libnetd", "dhcp4", "netd", "net"]
 #   dhcp4    a DHCPv4 client: packet codec and the RFC 2131 state machine as a
 #            pure, clock-injected type. No sockets. Its own crate so the state
 #            machine is tested without a network and could be reused.
+#   dhcp6    a stateless DHCPv6 client (information-request only), same shape.
+#   ndp      IPv6 neighbour discovery for a host: the RA codec and the SLAAC
+#            state machine with RFC 7217 stable-privacy addresses, same shape.
 #   netd     the daemon. Runs as SYSTEM with the network privileges; the only
 #            member that touches netlink or the registry.
 #   net      the operator command. Talks to netd over the control socket and

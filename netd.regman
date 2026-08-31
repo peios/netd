@@ -91,14 +91,44 @@ address, gateway, classless routes, DNS servers and MTU are applied; the
 lease is remembered under `/var/state/netd/leases/` so the next boot asks
 for the same address first.
 
+--- machine\system\network\profiles\<name>\address ipv6
+canonical: Machine\System\Network\Profiles\<name>\Address IPv6
+type: REG_DWORD
+default: 1
+applies: live
+
+Autoconfigure IPv6: solicit routers, form a stable-privacy address
+(RFC 7217) from each advertised prefix, take the advertised default route
+and DNS, and ask over stateless DHCPv6 when a router sets M or O. The
+kernel's own RA processing is off (`accept_ra = 0`) on every interface
+regardless — netd is the only RA listener on Peios — so switching this off
+means the interface simply has no global IPv6 unless `Static` provides it.
+The stable address is a keyed digest of prefix and interface identity: the
+same box on the same network keeps its address across boots, the MAC is
+never in it, and the key (`/var/state/netd/secret`) never leaves the
+machine.
+
+--- machine\system\network\profiles\<name>\address ipv6temporary
+canonical: Machine\System\Network\Profiles\<name>\Address IPv6Temporary
+type: REG_DWORD
+default: 0
+applies: live
+
+Also form temporary addresses (RFC 8981) that rotate daily and are
+preferred for outgoing connections, for interfaces whose traffic should not
+correlate over days. The stable address remains for inbound. Off by
+default: a server wants to be recognisable, and the stable address already
+hides the hardware.
+
 --- machine\system\network\profiles\<name>\address static
 canonical: Machine\System\Network\Profiles\<name>\Address Static
 type: REG_MULTI_SZ
 default: (none)
 applies: live
 
-Static addresses in CIDR form, e.g. `10.0.0.5/24`. Combined with a lease if
-DHCP4 is also on. A malformed entry is logged and skipped, not fatal.
+Static addresses in CIDR form, e.g. `10.0.0.5/24` or `fd00::5/64`, either
+family. Combined with a lease if DHCP4 is also on. A malformed entry is
+logged and skipped, not fatal.
 
 --- machine\system\network\profiles\<name>\address gateway
 canonical: Machine\System\Network\Profiles\<name>\Address Gateway
@@ -107,6 +137,15 @@ default: (none)
 applies: live
 
 Default-route gateway. Overrides one supplied by DHCP.
+
+--- machine\system\network\profiles\<name>\address gateway6
+canonical: Machine\System\Network\Profiles\<name>\Address Gateway6
+type: REG_SZ
+default: (none)
+applies: live
+
+IPv6 default-route gateway, usually a router's link-local address.
+Overrides what router advertisements say.
 
 --- machine\system\network\profiles\<name>\address linklocal
 canonical: Machine\System\Network\Profiles\<name>\Address LinkLocal
@@ -170,11 +209,14 @@ What this interface contributes to name resolution. netd merges these with
 the lease and hands the result to resolvd over its control socket (the
 `subscribe` query); the registry never carries a learned server. Values:
 
-- `Servers` (REG_MULTI_SZ): addresses, tried in this order.
+- `Servers` (REG_MULTI_SZ): addresses, either family, tried in this order.
 - `SearchDomains` (REG_MULTI_SZ): domains this interface's servers answer
   for; a single-label name is expanded with them.
-- `UseFromDHCP` (REG_DWORD, default 1): also take the lease's servers and
-  domain search list, after the static ones.
+- `UseFromDHCP` (REG_DWORD, default 1): also take what the network said,
+  after the static entries — the DHCPv4 lease's servers and search list,
+  the router advertisements' RDNSS and DNSSL, and a stateless DHCPv6
+  answer. One switch, not four: they are all the same claim from the same
+  network.
 - `DNSDefaultRoute` (REG_DWORD): whether this interface's servers take
   names no interface's domain matches. Unset, that follows from having a
   default route; set, it says so either way. Several claimants are ordered

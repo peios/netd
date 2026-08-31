@@ -33,7 +33,14 @@ fn status() -> Result<Status, String> {
 }
 
 fn print_status(s: &Status) {
-    println!("hostname  {}", if s.hostname.is_empty() { "(unset)" } else { &s.hostname });
+    println!(
+        "hostname  {}",
+        if s.hostname.is_empty() {
+            "(unset)"
+        } else {
+            &s.hostname
+        }
+    );
     println!("level     {}", s.level.as_str());
     for i in &s.interfaces {
         println!();
@@ -42,7 +49,11 @@ fn print_status(s: &Status) {
         println!(
             "  state     {}{}{}{}",
             if i.up { "up" } else { "down" },
-            if i.carrier { ", carrier" } else { ", no-carrier" },
+            if i.carrier {
+                ", carrier"
+            } else {
+                ", no-carrier"
+            },
             if i.managed { "" } else { ", unmanaged" },
             if i.enabled { "" } else { ", disabled" }
         );
@@ -56,6 +67,9 @@ fn print_status(s: &Status) {
         if let Some(g) = &i.gateway {
             println!("  gateway   {g}");
         }
+        if let Some(g) = &i.gateway6 {
+            println!("  gateway6  {g}");
+        }
         if !i.dns.is_empty() {
             println!("  dns       {}", i.dns.join(" "));
         }
@@ -63,14 +77,22 @@ fn print_status(s: &Status) {
             println!("  search    {}", i.search.join(" "));
         }
         if let Some(l) = &i.lease {
-            println!("  lease     {} from {}, {}s left", l.state, l.server, l.expires_in);
+            println!(
+                "  lease     {} from {}, {}s left",
+                l.state, l.server, l.expires_in
+            );
         }
     }
 }
 
 fn profile_list() -> ExitCode {
     let path = format!("{NETWORK_KEY}\\Profiles");
-    let key = match Key::open(None, &path, KeyAccess::ENUMERATE_SUB_KEYS | KeyAccess::QUERY_VALUE, OpenFlags::empty()) {
+    let key = match Key::open(
+        None,
+        &path,
+        KeyAccess::ENUMERATE_SUB_KEYS | KeyAccess::QUERY_VALUE,
+        OpenFlags::empty(),
+    ) {
         Ok(k) => k,
         Err(e) => {
             eprintln!("net: {path}: {e}");
@@ -79,7 +101,13 @@ fn profile_list() -> ExitCode {
     };
     for sub in key.subkeys(None).flatten() {
         let name = String::from_utf8_lossy(&sub.name).into_owned();
-        let p = Key::open(Some(&key), &name, KeyAccess::QUERY_VALUE, OpenFlags::empty()).ok();
+        let p = Key::open(
+            Some(&key),
+            &name,
+            KeyAccess::QUERY_VALUE,
+            OpenFlags::empty(),
+        )
+        .ok();
         let priority = p
             .as_ref()
             .and_then(|p| p.query_value(b"Priority", None).ok())
@@ -121,7 +149,9 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        ["renew", interface] => match call(&Request::Renew { interface: (*interface).to_owned() }) {
+        ["renew", interface] => match call(&Request::Renew {
+            interface: (*interface).to_owned(),
+        }) {
             Ok(Reply::Ok) => ExitCode::SUCCESS,
             Ok(Reply::Error(e)) | Err(e) => {
                 eprintln!("net: {e}");
@@ -139,7 +169,9 @@ fn main() -> ExitCode {
         },
         ["profile", "list"] => profile_list(),
         ["wait", level] | ["wait", level, _] => {
-            let Some(level) = Level::parse(level) else { return usage() };
+            let Some(level) = Level::parse(level) else {
+                return usage();
+            };
             let timeout = words.get(2).and_then(|t| t.parse().ok()).unwrap_or(60);
             wait(level, timeout)
         }

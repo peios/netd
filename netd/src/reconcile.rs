@@ -6,11 +6,22 @@
 //! [`RTPROT_NETD`], so a program's own routes are left alone.
 
 use std::collections::BTreeSet;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::log;
-use crate::model::{Address, Observed, RTPROT_NETD, Route};
+use crate::model::{Address, Observed, RTPROT_NETD, Route, is_v6_link_local};
 use crate::netlink::Rtnl;
+
+/// One IPv6 address the interface should carry, with the flags SLAAC needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesiredV6 {
+    pub address: Ipv6Addr,
+    pub prefix: u8,
+    /// Keep it, but with a preferred lifetime of zero.
+    pub deprecated: bool,
+    /// The prefix is not on-link; the kernel must not derive a prefix route.
+    pub no_prefix_route: bool,
+}
 
 /// What one managed interface should look like.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -19,9 +30,12 @@ pub struct Desired {
     pub up: bool,
     pub mtu: Option<u32>,
     pub addresses: Vec<(Ipv4Addr, u8)>,
+    pub addresses6: Vec<DesiredV6>,
     pub broadcast: Option<Ipv4Addr>,
     /// Gateway for a default route, with its metric.
     pub default_route: Option<(Ipv4Addr, u32)>,
+    /// Gateway for the IPv6 default route — a router's link-local.
+    pub default_route6: Option<(Ipv6Addr, u32)>,
     /// (destination, prefix, gateway, metric)
     pub routes: Vec<(Ipv4Addr, u8, Ipv4Addr, u32)>,
 }
@@ -42,7 +56,9 @@ pub enum Op {
 pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
     let mut ops = Vec::new();
     let index = desired.index;
-    let Some(link) = observed.links.get(&index) else { return ops };
+    let Some(link) = observed.links.get(&index) else {
+        return ops;
+    };
 
     if desired.up && !link.up {
         ops.push(Op::LinkUp(index));
@@ -56,18 +72,41 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
     let want: BTreeSet<Address> = desired
         .addresses
         .iter()
-        .map(|(a, p)| Address { index, address: IpAddr::V4(*a), prefix: *p })
+        .map(|(a, p)| Address::new(index, IpAddr::V4(*a), *p))
+        .chain(desired.addresses6.iter().map(|a| Address {
+            index,
+            address: IpAddr::V6(a.address),
+            prefix: a.prefix,
+            deprecated: a.deprecated,
+            no_prefix_route: a.no_prefix_route,
+        }))
         .collect();
+    // The kernel's own IPv6 link-local is not ours to manage: every up
+    // interface has one, made by the kernel, needed by neighbour discovery.
     let have: BTreeSet<Address> = observed
         .addresses_of(index)
-        .filter(|a| matches!(a.address, IpAddr::V4(_)))
+        .filter(|a| match a.address {
+            IpAddr::V4(_) => true,
+            IpAddr::V6(v6) => !is_v6_link_local(&v6),
+        })
         .cloned()
         .collect();
-    for a in have.difference(&want) {
-        ops.push(Op::DelAddress(a.clone()));
+    let wanted_key = |a: &Address| {
+        want.iter()
+            .any(|w| w.address == a.address && w.prefix == a.prefix)
+    };
+    for a in &have {
+        // Delete only what no desired address names; a flags-only change
+        // (deprecation) is a replacing add, never a delete that would reset
+        // standing connections.
+        if !wanted_key(a) {
+            ops.push(Op::DelAddress(a.clone()));
+        }
     }
-    for a in want.difference(&have) {
-        ops.push(Op::AddAddress(a.clone(), desired.broadcast));
+    for a in &want {
+        if !have.contains(a) {
+            ops.push(Op::AddAddress(a.clone(), desired.broadcast));
+        }
     }
 
     let mut want_routes: BTreeSet<Route> = desired
@@ -75,9 +114,9 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
         .iter()
         .map(|(d, p, g, m)| Route {
             index,
-            destination: *d,
+            destination: IpAddr::V4(*d),
             prefix: *p,
-            gateway: Some(*g),
+            gateway: Some(IpAddr::V4(*g)),
             metric: *m,
             protocol: RTPROT_NETD,
         })
@@ -85,16 +124,29 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
     if let Some((gateway, metric)) = desired.default_route {
         want_routes.insert(Route {
             index,
-            destination: Ipv4Addr::UNSPECIFIED,
+            destination: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             prefix: 0,
-            gateway: Some(gateway),
+            gateway: Some(IpAddr::V4(gateway)),
+            metric,
+            protocol: RTPROT_NETD,
+        });
+    }
+    if let Some((gateway, metric)) = desired.default_route6 {
+        want_routes.insert(Route {
+            index,
+            destination: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            prefix: 0,
+            gateway: Some(IpAddr::V6(gateway)),
             metric,
             protocol: RTPROT_NETD,
         });
     }
     // Only routes we stamped are ours to remove.
-    let have_routes: BTreeSet<Route> =
-        observed.routes_of(index).filter(|r| r.protocol == RTPROT_NETD).cloned().collect();
+    let have_routes: BTreeSet<Route> = observed
+        .routes_of(index)
+        .filter(|r| r.protocol == RTPROT_NETD)
+        .cloned()
+        .collect();
     for r in have_routes.difference(&want_routes) {
         ops.push(Op::DelRoute(r.clone()));
     }
@@ -128,7 +180,10 @@ pub fn apply(rtnl: &mut dyn Rtnl, ops: &[Op]) -> usize {
             let benign = matches!(
                 (op, e.raw_os_error()),
                 (Op::AddRoute(_) | Op::AddAddress(..), Some(libc::EEXIST))
-                    | (Op::DelRoute(_) | Op::DelAddress(_), Some(libc::ENOENT | libc::ESRCH))
+                    | (
+                        Op::DelRoute(_) | Op::DelAddress(_),
+                        Some(libc::ENOENT | libc::ESRCH)
+                    )
             );
             if !benign {
                 failures += 1;
@@ -168,22 +223,28 @@ pub mod fake {
             Ok(())
         }
         fn add_address(&mut self, a: &Address, _b: Option<Ipv4Addr>) -> io::Result<()> {
-            self.log.push(format!("addr add {}/{}", a.address, a.prefix));
+            self.log
+                .push(format!("addr add {}/{}", a.address, a.prefix));
             self.state.addresses.push(a.clone());
             Ok(())
         }
         fn del_address(&mut self, a: &Address) -> io::Result<()> {
-            self.log.push(format!("addr del {}/{}", a.address, a.prefix));
+            self.log
+                .push(format!("addr del {}/{}", a.address, a.prefix));
             self.state.addresses.retain(|x| x != a);
             Ok(())
         }
         fn add_route(&mut self, r: &Route) -> io::Result<()> {
-            self.log.push(format!("route add {}/{} via {:?} metric {}", r.destination, r.prefix, r.gateway, r.metric));
+            self.log.push(format!(
+                "route add {}/{} via {:?} metric {}",
+                r.destination, r.prefix, r.gateway, r.metric
+            ));
             self.state.routes.push(r.clone());
             Ok(())
         }
         fn del_route(&mut self, r: &Route) -> io::Result<()> {
-            self.log.push(format!("route del {}/{}", r.destination, r.prefix));
+            self.log
+                .push(format!("route del {}/{}", r.destination, r.prefix));
             self.state.routes.retain(|x| x != r);
             Ok(())
         }
@@ -229,7 +290,10 @@ mod tests {
         assert!(matches!(ops[0], Op::LinkUp(2)));
         assert!(matches!(ops[1], Op::AddAddress(..)));
         assert!(matches!(ops[2], Op::AddRoute(ref r) if r.is_default()));
-        let mut fake = FakeRtnl { state: o, log: vec![] };
+        let mut fake = FakeRtnl {
+            state: o,
+            log: vec![],
+        };
         assert_eq!(apply(&mut fake, &ops), 0);
         // Converged: the second plan is empty.
         assert!(plan(&fake.state, &d).is_empty());
@@ -238,16 +302,22 @@ mod tests {
     #[test]
     fn a_manual_address_is_reverted_but_a_foreign_route_is_kept() {
         let mut o = observed();
-        o.addresses.push(Address { index: 2, address: "192.168.9.9".parse().unwrap(), prefix: 24 });
+        o.addresses
+            .push(Address::new(2, "192.168.9.9".parse().unwrap(), 24));
         o.routes.push(Route {
             index: 2,
-            destination: Ipv4Addr::new(10, 9, 0, 0),
+            destination: IpAddr::V4(Ipv4Addr::new(10, 9, 0, 0)),
             prefix: 16,
-            gateway: Some(Ipv4Addr::new(10, 0, 2, 1)),
+            gateway: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 1))),
             metric: 0,
             protocol: 4, // RTPROT_STATIC: somebody else's
         });
-        let d = Desired { index: 2, up: true, addresses: vec![(Ipv4Addr::new(10, 0, 2, 15), 24)], ..Default::default() };
+        let d = Desired {
+            index: 2,
+            up: true,
+            addresses: vec![(Ipv4Addr::new(10, 0, 2, 15), 24)],
+            ..Default::default()
+        };
         let ops = plan(&o, &d);
         assert!(ops.iter().any(|o| matches!(o, Op::DelAddress(a) if a.prefix == 24 && a.address.to_string() == "192.168.9.9")));
         assert!(!ops.iter().any(|o| matches!(o, Op::DelRoute(_))));
@@ -258,22 +328,125 @@ mod tests {
         let mut o = observed();
         o.routes.push(Route {
             index: 2,
-            destination: Ipv4Addr::UNSPECIFIED,
+            destination: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             prefix: 0,
-            gateway: Some(Ipv4Addr::new(10, 0, 2, 2)),
+            gateway: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2))),
             metric: 100,
             protocol: RTPROT_NETD,
         });
-        let d = Desired { index: 2, up: true, ..Default::default() };
+        let d = Desired {
+            index: 2,
+            up: true,
+            ..Default::default()
+        };
         let ops = plan(&o, &d);
-        assert!(ops.iter().any(|o| matches!(o, Op::DelRoute(r) if r.is_default())));
+        assert!(
+            ops.iter()
+                .any(|o| matches!(o, Op::DelRoute(r) if r.is_default()))
+        );
+    }
+
+    #[test]
+    fn slaac_addresses_and_the_v6_default_route_land_beside_v4() {
+        let mut o = observed();
+        o.links.get_mut(&2).unwrap().up = true;
+        // The kernel's link-local is already there, and must be left alone.
+        o.addresses.push(Address::new(
+            2,
+            "fe80::5054:ff:fe01:203".parse().unwrap(),
+            64,
+        ));
+        let d = Desired {
+            index: 2,
+            up: true,
+            addresses6: vec![DesiredV6 {
+                address: "fd00::1234".parse().unwrap(),
+                prefix: 64,
+                deprecated: false,
+                no_prefix_route: false,
+            }],
+            default_route6: Some(("fe80::2".parse().unwrap(), 100)),
+            ..Default::default()
+        };
+        let ops = plan(&o, &d);
+        assert!(
+            ops.iter().any(
+                |op| matches!(op, Op::AddAddress(a, _) if a.address.to_string() == "fd00::1234")
+            )
+        );
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Op::AddRoute(r) if r.is_default() && !r.is_v4()))
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(op, Op::DelAddress(_))),
+            "the link-local stays: {ops:?}"
+        );
+        let mut fake = FakeRtnl {
+            state: o,
+            log: vec![],
+        };
+        assert_eq!(apply(&mut fake, &ops), 0);
+        assert!(plan(&fake.state, &d).is_empty(), "converged");
+    }
+
+    #[test]
+    fn deprecation_is_a_replacing_add_never_a_delete() {
+        let mut o = observed();
+        o.links.get_mut(&2).unwrap().up = true;
+        o.addresses
+            .push(Address::new(2, "fd00::1234".parse().unwrap(), 64));
+        let d = Desired {
+            index: 2,
+            up: true,
+            addresses6: vec![DesiredV6 {
+                address: "fd00::1234".parse().unwrap(),
+                prefix: 64,
+                deprecated: true,
+                no_prefix_route: false,
+            }],
+            ..Default::default()
+        };
+        let ops = plan(&o, &d);
+        assert!(
+            !ops.iter().any(|op| matches!(op, Op::DelAddress(_))),
+            "{ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Op::AddAddress(a, _) if a.deprecated)),
+            "the flag change is a replacing add: {ops:?}"
+        );
+    }
+
+    #[test]
+    fn a_foreign_global_v6_address_is_reverted() {
+        let mut o = observed();
+        o.links.get_mut(&2).unwrap().up = true;
+        o.addresses
+            .push(Address::new(2, "2001:db8::9".parse().unwrap(), 64));
+        let d = Desired {
+            index: 2,
+            up: true,
+            ..Default::default()
+        };
+        let ops = plan(&o, &d);
+        assert!(
+            ops.iter().any(
+                |op| matches!(op, Op::DelAddress(a) if a.address.to_string() == "2001:db8::9")
+            )
+        );
     }
 
     #[test]
     fn unmanaged_desired_down_takes_the_link_down_last() {
         let mut o = observed();
         o.links.get_mut(&2).unwrap().up = true;
-        let d = Desired { index: 2, up: false, ..Default::default() };
+        let d = Desired {
+            index: 2,
+            up: false,
+            ..Default::default()
+        };
         let ops = plan(&o, &d);
         assert_eq!(ops, vec![Op::LinkDown(2)]);
     }

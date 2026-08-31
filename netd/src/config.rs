@@ -4,7 +4,7 @@
 //! defaults; a malformed value is logged and its default used, never a
 //! crash — a typo in one profile must not take the network down.
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use libnetd::NETWORK_KEY;
 use peios::registry::{Key, KeyAccess, OpenFlags, RegValue, ValueType};
@@ -28,15 +28,22 @@ pub enum OnLeaseExpiry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticAddress {
-    pub address: Ipv4Addr,
+    pub address: IpAddr,
     pub prefix: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressConfig {
     pub dhcp4: bool,
+    /// `IPv6`: solicit routers and autoconfigure (SLAAC + stateless
+    /// DHCPv6). Static IPv6 addresses apply regardless.
+    pub ipv6: bool,
+    /// `IPv6Temporary`: RFC 8981 temporary addresses beside the stable one.
+    pub ipv6_temporary: bool,
     pub statics: Vec<StaticAddress>,
     pub gateway: Option<Ipv4Addr>,
+    /// `Gateway6`: a static IPv6 default router, overriding what RAs say.
+    pub gateway6: Option<Ipv6Addr>,
     pub link_local: bool,
     pub on_lease_expiry: OnLeaseExpiry,
     pub route_metric: Option<u32>,
@@ -50,8 +57,11 @@ impl Default for AddressConfig {
     fn default() -> Self {
         AddressConfig {
             dhcp4: true,
+            ipv6: true,
+            ipv6_temporary: false,
             statics: Vec::new(),
             gateway: None,
+            gateway6: None,
             link_local: true,
             on_lease_expiry: OnLeaseExpiry::Drop,
             route_metric: None,
@@ -64,7 +74,7 @@ impl Default for AddressConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DnsConfig {
-    pub servers: Vec<Ipv4Addr>,
+    pub servers: Vec<IpAddr>,
     pub search: Vec<String>,
     pub use_from_dhcp: bool,
     /// `DNSDefaultRoute`: unset means "when the interface has a default
@@ -125,7 +135,9 @@ fn read(key: &Key, name: &str) -> Option<RegValue> {
 }
 
 fn read_sz(key: &Key, name: &str) -> Option<String> {
-    read(key, name).and_then(|v| sz(&v)).filter(|s| !s.is_empty())
+    read(key, name)
+        .and_then(|v| sz(&v))
+        .filter(|s| !s.is_empty())
 }
 
 fn read_multi(key: &Key, name: &str) -> Vec<String> {
@@ -152,13 +164,23 @@ fn read_u32(key: &Key, name: &str) -> Option<u32> {
 }
 
 fn open(parent: Option<&Key>, path: &str) -> Option<Key> {
-    Key::open(parent, path, KeyAccess::QUERY_VALUE | KeyAccess::ENUMERATE_SUB_KEYS, OpenFlags::empty())
-        .ok()
+    Key::open(
+        parent,
+        path,
+        KeyAccess::QUERY_VALUE | KeyAccess::ENUMERATE_SUB_KEYS,
+        OpenFlags::empty(),
+    )
+    .ok()
 }
 
 pub fn parse_cidr(s: &str) -> Option<StaticAddress> {
     let (a, p) = s.split_once('/')?;
-    Some(StaticAddress { address: a.trim().parse().ok()?, prefix: p.trim().parse().ok().filter(|p| *p <= 32)? })
+    let address: IpAddr = a.trim().parse().ok()?;
+    let bits = if address.is_ipv4() { 32 } else { 128 };
+    Some(StaticAddress {
+        address,
+        prefix: p.trim().parse().ok().filter(|p| *p <= bits)?,
+    })
 }
 
 fn parse_profile(name: &str, key: &Key) -> Profile {
@@ -175,19 +197,28 @@ fn parse_profile(name: &str, key: &Key) -> Profile {
     let mut address = AddressConfig::default();
     if let Some(a) = open(Some(key), "Address") {
         address.dhcp4 = read_bool(&a, "DHCP4", true);
+        address.ipv6 = read_bool(&a, "IPv6", true);
+        address.ipv6_temporary = read_bool(&a, "IPv6Temporary", false);
+        address.gateway6 = read_sz(&a, "Gateway6").and_then(|s| s.parse().ok());
         address.statics = read_multi(&a, "Static")
             .iter()
             .filter_map(|s| {
                 let r = parse_cidr(s);
                 if r.is_none() {
-                    log::warn(format_args!("profile {name}: ignoring malformed Static address {s:?}"));
+                    log::warn(format_args!(
+                        "profile {name}: ignoring malformed Static address {s:?}"
+                    ));
                 }
                 r
             })
             .collect();
         address.gateway = read_sz(&a, "Gateway").and_then(|s| s.parse().ok());
         address.link_local = read_bool(&a, "LinkLocal", true);
-        address.on_lease_expiry = match read_sz(&a, "OnLeaseExpiry").as_deref().map(str::to_ascii_lowercase).as_deref() {
+        address.on_lease_expiry = match read_sz(&a, "OnLeaseExpiry")
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
             Some("keep") => OnLeaseExpiry::Keep,
             _ => OnLeaseExpiry::Drop,
         };
@@ -196,9 +227,15 @@ fn parse_profile(name: &str, key: &Key) -> Profile {
         address.send_hostname = read_bool(&a, "SendHostname", true);
         address.accept_hostname = read_bool(&a, "AcceptHostname", false);
     }
-    let mut dns = DnsConfig { use_from_dhcp: true, ..Default::default() };
+    let mut dns = DnsConfig {
+        use_from_dhcp: true,
+        ..Default::default()
+    };
     if let Some(d) = open(Some(key), "DNS") {
-        dns.servers = read_multi(&d, "Servers").iter().filter_map(|s| s.parse().ok()).collect();
+        dns.servers = read_multi(&d, "Servers")
+            .iter()
+            .filter_map(|s| s.parse().ok())
+            .collect();
         dns.search = read_multi(&d, "SearchDomains");
         dns.use_from_dhcp = read_bool(&d, "UseFromDHCP", true);
         dns.default_route = read_u32(&d, "DNSDefaultRoute").map(|v| v != 0);
@@ -219,7 +256,9 @@ fn parse_profile(name: &str, key: &Key) -> Profile {
 pub fn load() -> Config {
     let mut config = Config::default();
     let Some(root) = open(None, NETWORK_KEY) else {
-        log::warn(format_args!("{NETWORK_KEY} does not exist; running with no profiles"));
+        log::warn(format_args!(
+            "{NETWORK_KEY} does not exist; running with no profiles"
+        ));
         return config;
     };
     config.hostname = read_sz(&root, "Hostname");
@@ -229,14 +268,18 @@ pub fn load() -> Config {
     if let Some(profiles) = open(Some(&root), "Profiles") {
         for subkey in profiles.subkeys(None) {
             let Ok(subkey) = subkey else { continue };
-            let Ok(name) = String::from_utf8(subkey.name.clone()) else { continue };
+            let Ok(name) = String::from_utf8(subkey.name.clone()) else {
+                continue;
+            };
             if let Some(key) = open(Some(&profiles), &name) {
                 config.profiles.push(parse_profile(&name, &key));
             }
         }
     }
     // Highest priority first; ties by name so the order is stable.
-    config.profiles.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
+    config
+        .profiles
+        .sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
     config
 }
 

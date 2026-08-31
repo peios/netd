@@ -1,7 +1,7 @@
 //! What the kernel says the network is, and how netd names interfaces.
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 /// The routing protocol number netd stamps on routes it owns. Values above
 /// `RTPROT_STATIC` are for userspace to claim; 200 is ours. The reconciler
@@ -48,14 +48,49 @@ pub struct Address {
     pub index: u32,
     pub address: IpAddr,
     pub prefix: u8,
+    /// Past its preferred lifetime (`IFA_F_DEPRECATED`): kept for standing
+    /// connections, chosen for nothing new. netd deprecates its own SLAAC
+    /// addresses this way rather than deleting them.
+    pub deprecated: bool,
+    /// `IFA_F_NOPREFIXROUTE`: the kernel must not derive a prefix route
+    /// from this address. Set on SLAAC addresses whose prefix is not
+    /// on-link.
+    pub no_prefix_route: bool,
+}
+
+impl Address {
+    pub fn new(index: u32, address: IpAddr, prefix: u8) -> Address {
+        Address {
+            index,
+            address,
+            prefix,
+            deprecated: false,
+            no_prefix_route: false,
+        }
+    }
+
+    /// A usable unicast address for readiness purposes. IPv6 link-locals
+    /// are excluded — every up interface has one, so counting them would
+    /// make `addressed` meaningless — but the IPv4 169.254 self-assignment
+    /// counts, because it is the outcome of address acquisition.
+    pub fn usable(&self) -> bool {
+        match self.address {
+            IpAddr::V4(a) => !a.is_loopback(),
+            IpAddr::V6(a) => !a.is_loopback() && !is_v6_link_local(&a),
+        }
+    }
+}
+
+pub fn is_v6_link_local(a: &std::net::Ipv6Addr) -> bool {
+    (a.segments()[0] & 0xffc0) == 0xfe80
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Route {
     pub index: u32,
-    pub destination: Ipv4Addr,
+    pub destination: IpAddr,
     pub prefix: u8,
-    pub gateway: Option<Ipv4Addr>,
+    pub gateway: Option<IpAddr>,
     pub metric: u32,
     pub protocol: u8,
 }
@@ -63,6 +98,10 @@ pub struct Route {
 impl Route {
     pub fn is_default(&self) -> bool {
         self.prefix == 0
+    }
+
+    pub fn is_v4(&self) -> bool {
+        matches!(self.destination, IpAddr::V4(_))
     }
 }
 
@@ -95,7 +134,10 @@ pub struct Identity {
 }
 
 pub fn format_mac(mac: &[u8; 6]) -> String {
-    mac.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
+    mac.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// The interface id: a UUID-shaped digest of bus path and MAC.
@@ -123,7 +165,22 @@ pub fn interface_id(identity: &Identity, mac: Option<&[u8; 6]>, name: &str) -> S
     b[8] = (b[8] & 0x3f) | 0x80;
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
     )
 }
 
@@ -159,7 +216,9 @@ fn is_pci_address(name: &str) -> bool {
         && b[4] == b':'
         && b[7] == b':'
         && b[10] == b'.'
-        && [0, 1, 2, 3, 5, 6, 8, 9, 11].iter().all(|&i| b[i].is_ascii_hexdigit())
+        && [0, 1, 2, 3, 5, 6, 8, 9, 11]
+            .iter()
+            .all(|&i| b[i].is_ascii_hexdigit())
 }
 
 /// Whether sysfs says this link is wireless.
@@ -174,7 +233,10 @@ mod tests {
 
     #[test]
     fn ids_are_stable_and_distinct() {
-        let id = Identity { path: "pci-0000:00:03.0".into(), driver: "virtio_net".into() };
+        let id = Identity {
+            path: "pci-0000:00:03.0".into(),
+            driver: "virtio_net".into(),
+        };
         let mac = [0x52, 0x54, 0, 1, 2, 3];
         let a = interface_id(&id, Some(&mac), "eth0");
         let b = interface_id(&id, Some(&mac), "enp0s3");
@@ -194,6 +256,9 @@ mod tests {
 
     #[test]
     fn macs_format() {
-        assert_eq!(format_mac(&[0x52, 0x54, 0, 0xab, 0xcd, 0xef]), "52:54:00:ab:cd:ef");
+        assert_eq!(
+            format_mac(&[0x52, 0x54, 0, 0xab, 0xcd, 0xef]),
+            "52:54:00:ab:cd:ef"
+        );
     }
 }

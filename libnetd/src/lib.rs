@@ -184,6 +184,9 @@ pub struct InterfaceStatus {
     pub level: Level,
     pub addresses: Vec<String>,
     pub gateway: Option<String>,
+    /// The IPv6 default router — a link-local address, meaningful only on
+    /// this interface.
+    pub gateway6: Option<String>,
     pub dns: Vec<String>,
     pub search: Vec<String>,
     pub lease: Option<LeaseStatus>,
@@ -274,7 +277,8 @@ impl Reply {
                 w.write_map(4).write_str("ok").write_bool(true);
                 w.write_str("kind").write_str("snapshot");
                 w.write_str("hostname").write_str(&snapshot.hostname);
-                w.write_str("scopes").write_array(snapshot.scopes.len() as u32);
+                w.write_str("scopes")
+                    .write_array(snapshot.scopes.len() as u32);
                 for s in &snapshot.scopes {
                     w.write_map(10);
                     w.write_str("ifid").write_str(&s.ifid);
@@ -375,7 +379,7 @@ fn write_opt_str(w: &mut Writer, key: &str, v: &Option<String>) {
 }
 
 fn encode_interface(w: &mut Writer, i: &InterfaceStatus) {
-    w.write_map(17);
+    w.write_map(18);
     w.write_str("ifid").write_str(&i.ifid);
     w.write_str("name").write_str(&i.name);
     w.write_str("index").write_uint(u64::from(i.index));
@@ -390,6 +394,7 @@ fn encode_interface(w: &mut Writer, i: &InterfaceStatus) {
     w.write_str("level").write_str(i.level.as_str());
     write_str_list(w, "addresses", &i.addresses);
     write_opt_str(w, "gateway", &i.gateway);
+    write_opt_str(w, "gateway6", &i.gateway6);
     write_str_list(w, "dns", &i.dns);
     write_str_list(w, "search", &i.search);
     w.write_str("lease");
@@ -473,6 +478,7 @@ fn decode_interface(r: &mut Reader<'_>) -> Result<InterfaceStatus, WireError> {
             "level" => i.level = Level::parse(r.read_str()?).unwrap_or(Level::Absent),
             "addresses" => i.addresses = read_str_list(r)?,
             "gateway" => i.gateway = read_opt_str(r)?,
+            "gateway6" => i.gateway6 = read_opt_str(r)?,
             "dns" => i.dns = read_str_list(r)?,
             "search" => i.search = read_str_list(r)?,
             "lease" => {
@@ -598,7 +604,9 @@ mod tests {
         for req in [
             Request::Status,
             Request::Reconcile,
-            Request::Renew { interface: "eth0".into() },
+            Request::Renew {
+                interface: "eth0".into(),
+            },
             Request::Subscribe,
         ] {
             assert_eq!(Request::decode(&req.encode()).unwrap(), req);
@@ -623,9 +631,10 @@ mod tests {
                 up: true,
                 carrier: true,
                 level: Level::Routed,
-                addresses: vec!["10.0.2.15/24".into()],
+                addresses: vec!["10.0.2.15/24".into(), "fd00::1234/64".into()],
                 gateway: Some("10.0.2.2".into()),
-                dns: vec!["10.0.2.3".into()],
+                gateway6: Some("fe80::2".into()),
+                dns: vec!["10.0.2.3".into(), "fd00::3".into()],
                 search: vec![],
                 lease: Some(LeaseStatus {
                     server: "10.0.2.2".into(),
@@ -644,14 +653,25 @@ mod tests {
     #[test]
     fn a_duplicate_key_is_refused_and_an_unknown_one_ignored() {
         let mut w = Writer::new();
-        w.write_map(2).write_str("query").write_str("status").write_str("query").write_str("status");
+        w.write_map(2)
+            .write_str("query")
+            .write_str("status")
+            .write_str("query")
+            .write_str("status");
         assert!(matches!(
             Request::decode(&w.to_bytes().unwrap()),
             Err(WireError::Duplicate(_))
         ));
         let mut w = Writer::new();
-        w.write_map(2).write_str("extra").write_uint(3).write_str("query").write_str("status");
-        assert_eq!(Request::decode(&w.to_bytes().unwrap()).unwrap(), Request::Status);
+        w.write_map(2)
+            .write_str("extra")
+            .write_uint(3)
+            .write_str("query")
+            .write_str("status");
+        assert_eq!(
+            Request::decode(&w.to_bytes().unwrap()).unwrap(),
+            Request::Status
+        );
     }
 
     #[test]
@@ -696,7 +716,11 @@ mod tests {
         bytes.push(0xa0 | 7);
         bytes.extend_from_slice(b"servers");
         bytes.extend_from_slice(&[0xdd, 0xff, 0xff, 0xff, 0xff]);
-        assert!(matches!(Reply::decode(&bytes), Err(WireError::TooLarge(_))), "{:?}", Reply::decode(&bytes));
+        assert!(
+            matches!(Reply::decode(&bytes), Err(WireError::TooLarge(_))),
+            "{:?}",
+            Reply::decode(&bytes)
+        );
     }
 
     #[test]
@@ -716,7 +740,10 @@ mod fuzz_tests {
 
     #[test]
     fn fuzz_decoders_never_panic() {
-        let iters: usize = std::env::var("NETD_FUZZ_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000);
+        let iters: usize = std::env::var("NETD_FUZZ_ITERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20_000);
         let mut x: u64 = 0x1234_5678_9abc_def1;
         let mut next = move || {
             x ^= x >> 12;
@@ -725,14 +752,27 @@ mod fuzz_tests {
             x.wrapping_mul(0x2545_F491_4F6C_DD1D)
         };
         let seeds = [
-            Request::Renew { interface: "eth0".into() }.encode(),
+            Request::Renew {
+                interface: "eth0".into(),
+            }
+            .encode(),
             Request::Subscribe.encode(),
-            Reply::Snapshot(Snapshot { hostname: "h".into(), scopes: vec![DnsScope::default()] }).encode(),
-            Reply::Status(Status { interfaces: vec![InterfaceStatus::default()], ..Default::default() }).encode(),
+            Reply::Snapshot(Snapshot {
+                hostname: "h".into(),
+                scopes: vec![DnsScope::default()],
+            })
+            .encode(),
+            Reply::Status(Status {
+                interfaces: vec![InterfaceStatus::default()],
+                ..Default::default()
+            })
+            .encode(),
         ];
         for _ in 0..iters {
             let mut bytes = if next() % 4 == 0 {
-                (0..(next() % 200) as usize).map(|_| next() as u8).collect::<Vec<u8>>()
+                (0..(next() % 200) as usize)
+                    .map(|_| next() as u8)
+                    .collect::<Vec<u8>>()
             } else {
                 seeds[(next() % 4) as usize].clone()
             };
