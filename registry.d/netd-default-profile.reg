@@ -1,45 +1,49 @@
 {
   "_comment": [
-    "A default profile: every Ethernet interface gets DHCPv4, link-local when",
-    "nobody answers, and its DNS servers from the lease.",
+    "The shipped baseline of PNP's interface layer: every wired interface",
+    "joins the network it is plugged into, taking the address, the way out",
+    "and the name servers that network offers, and self-assigning a",
+    "link-local address while nobody answers.",
+    "",
+    "Two keys, because they answer two questions. Profiles\\default is how",
+    "an interface stands on a network: every value here is a visible,",
+    "deletable yes -- a bare profile believes nothing the network says and",
+    "does nothing beyond bringing the link up. Rules\\Interface\\wired is",
+    "which interfaces stand in it: a PNP rule over the Interface.* facts,",
+    "priority 10 so anything an operator writes at the default 0 does not",
+    "outrank it -- write a higher Priority to override, or an exception",
+    "subkey under `wired` to specialise.",
     "",
     "Separate from the service definition on purpose. Starting netd and",
-    "deciding that unknown wired interfaces should join whatever network they",
-    "are plugged into are two decisions; a hardened image may want the first",
-    "without the second and ship profiles naming its interfaces instead.",
+    "deciding that unknown wired interfaces should join whatever network",
+    "they are plugged into are two decisions; a hardened image may want the",
+    "first without the second and ship rules naming its interfaces instead.",
     "",
-    "Priority 10 is low, so any profile an operator adds at the default 100",
-    "wins over it without needing to know this one exists."
+    "Wireless is not in the baseline until a supplicant exists. An",
+    "interface no rule speaks for meets the compiled-in backstop, IGNORE,",
+    "and is left exactly as the kernel left it."
   ],
   "keys": [
     { "path": "Machine\\System" },
     { "path": "Machine\\System\\Network" },
     { "path": "Machine\\System\\Network\\Profiles" },
     {
-      "path": "Machine\\System\\Network\\Profiles\\ethernet",
+      "path": "Machine\\System\\Network\\Profiles\\default",
       "values": [
+        { "name": "Address.Offered", "type": "dword", "data": 1 },
+        { "name": "Address.LinkLocal", "type": "dword", "data": 1 },
+        { "name": "Route.Offered", "type": "dword", "data": 1 },
+        { "name": "Dns.Offered", "type": "dword", "data": 1 }
+      ]
+    },
+    { "path": "Machine\\System\\Network\\Rules" },
+    { "path": "Machine\\System\\Network\\Rules\\Interface" },
+    {
+      "path": "Machine\\System\\Network\\Rules\\Interface\\wired",
+      "values": [
+        { "name": "Interface.Kind.Equal", "type": "sz", "data": "wired" },
         { "name": "Priority", "type": "dword", "data": 10 },
-        { "name": "Managed", "type": "dword", "data": 1 }
-      ]
-    },
-    {
-      "path": "Machine\\System\\Network\\Profiles\\ethernet\\Match",
-      "values": [
-        { "name": "Type", "type": "sz", "data": "ether" }
-      ]
-    },
-    {
-      "path": "Machine\\System\\Network\\Profiles\\ethernet\\Address",
-      "values": [
-        { "name": "DHCP4", "type": "dword", "data": 1 },
-        { "name": "LinkLocal", "type": "dword", "data": 1 },
-        { "name": "OnLeaseExpiry", "type": "sz", "data": "Drop" }
-      ]
-    },
-    {
-      "path": "Machine\\System\\Network\\Profiles\\ethernet\\DNS",
-      "values": [
-        { "name": "UseFromDHCP", "type": "dword", "data": 1 }
+        { "name": "Actions", "type": "multi", "data": ["JOIN(default)"] }
       ]
     }
   ]

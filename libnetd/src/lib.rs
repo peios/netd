@@ -176,9 +176,20 @@ pub struct InterfaceStatus {
     pub mac: String,
     pub path: String,
     pub driver: String,
+    /// `JOIN`, `IGNORE` or `DOWN`; `None` when no rule spoke (the backstop
+    /// ignored it) or rules tied.
+    pub verdict: Option<String>,
+    /// The rule path that spoke, `backstop`, or the tied rules.
+    pub rule: Option<String>,
+    /// The profile path, `JOIN` only.
     pub profile: Option<String>,
-    pub managed: bool,
-    pub enabled: bool,
+    /// The network record identified on the other side, and what the
+    /// operator wrote on it.
+    pub network: Option<String>,
+    pub network_name: Option<String>,
+    pub network_trust: Option<String>,
+    /// Something the operator should see: discovery unanswered, a tie.
+    pub warning: Option<String>,
     pub up: bool,
     pub carrier: bool,
     pub level: Level,
@@ -197,6 +208,9 @@ pub struct InterfaceStatus {
 pub struct Status {
     pub hostname: String,
     pub level: Level,
+    /// Why the newest generation of the interface layer was refused, while
+    /// the last good one stands.
+    pub refusal: Option<String>,
     pub interfaces: Vec<InterfaceStatus>,
 }
 
@@ -294,9 +308,10 @@ impl Reply {
                 }
             }
             Reply::Status(status) => {
-                w.write_map(4).write_str("ok").write_bool(true);
+                w.write_map(5).write_str("ok").write_bool(true);
                 w.write_str("hostname").write_str(&status.hostname);
                 w.write_str("level").write_str(status.level.as_str());
+                write_opt_str(&mut w, "refusal", &status.refusal);
                 w.write_str("interfaces")
                     .write_array(status.interfaces.len() as u32);
                 for i in &status.interfaces {
@@ -334,6 +349,10 @@ impl Reply {
                 }
                 "level" => {
                     status.level = Level::parse(r.read_str()?).unwrap_or(Level::Absent);
+                    has_status = true;
+                }
+                "refusal" => {
+                    status.refusal = read_opt_str(r)?;
                     has_status = true;
                 }
                 "interfaces" => {
@@ -379,16 +398,20 @@ fn write_opt_str(w: &mut Writer, key: &str, v: &Option<String>) {
 }
 
 fn encode_interface(w: &mut Writer, i: &InterfaceStatus) {
-    w.write_map(18);
+    w.write_map(22);
     w.write_str("ifid").write_str(&i.ifid);
     w.write_str("name").write_str(&i.name);
     w.write_str("index").write_uint(u64::from(i.index));
     w.write_str("mac").write_str(&i.mac);
     w.write_str("path").write_str(&i.path);
     w.write_str("driver").write_str(&i.driver);
+    write_opt_str(w, "verdict", &i.verdict);
+    write_opt_str(w, "rule", &i.rule);
     write_opt_str(w, "profile", &i.profile);
-    w.write_str("managed").write_bool(i.managed);
-    w.write_str("enabled").write_bool(i.enabled);
+    write_opt_str(w, "network", &i.network);
+    write_opt_str(w, "network_name", &i.network_name);
+    write_opt_str(w, "network_trust", &i.network_trust);
+    write_opt_str(w, "warning", &i.warning);
     w.write_str("up").write_bool(i.up);
     w.write_str("carrier").write_bool(i.carrier);
     w.write_str("level").write_str(i.level.as_str());
@@ -470,9 +493,13 @@ fn decode_interface(r: &mut Reader<'_>) -> Result<InterfaceStatus, WireError> {
             "mac" => i.mac = r.read_str()?.to_owned(),
             "path" => i.path = r.read_str()?.to_owned(),
             "driver" => i.driver = r.read_str()?.to_owned(),
+            "verdict" => i.verdict = read_opt_str(r)?,
+            "rule" => i.rule = read_opt_str(r)?,
             "profile" => i.profile = read_opt_str(r)?,
-            "managed" => i.managed = r.read_bool()?,
-            "enabled" => i.enabled = r.read_bool()?,
+            "network" => i.network = read_opt_str(r)?,
+            "network_name" => i.network_name = read_opt_str(r)?,
+            "network_trust" => i.network_trust = read_opt_str(r)?,
+            "warning" => i.warning = read_opt_str(r)?,
             "up" => i.up = r.read_bool()?,
             "carrier" => i.carrier = r.read_bool()?,
             "level" => i.level = Level::parse(r.read_str()?).unwrap_or(Level::Absent),
@@ -618,6 +645,7 @@ mod tests {
         let status = Status {
             hostname: "box".into(),
             level: Level::Routed,
+            refusal: Some("rules a vs b tie on interface eth1".into()),
             interfaces: vec![InterfaceStatus {
                 ifid: "id".into(),
                 name: "eth0".into(),
@@ -626,8 +654,12 @@ mod tests {
                 path: "pci-0000:00:03.0".into(),
                 driver: "virtio_net".into(),
                 profile: Some("lan".into()),
-                managed: true,
-                enabled: true,
+                verdict: Some("JOIN".into()),
+                rule: Some("wired".into()),
+                network: Some("net-1".into()),
+                network_name: Some("office".into()),
+                network_trust: Some("corporate".into()),
+                warning: Some("asked for an address; nobody answered".into()),
                 up: true,
                 carrier: true,
                 level: Level::Routed,

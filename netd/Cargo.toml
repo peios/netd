@@ -23,5 +23,8 @@ netlink-sys = "0.9"
 # Interface identity: a UUID-shaped digest of bus path and MAC. Same choice
 # authd made for service SIDs; pure computation.
 sha1 = "0.10"
+# The interface layer is a PNP rules forest; netd builds and judges it with
+# the kernel's own rules engine so the two cannot disagree about a rule.
+pnp-core = { path = "../../pkm/crates/pnp-core" }
 ndp = { version = "0.1.0", path = "../ndp" }
 dhcp6 = { version = "0.1.0", path = "../dhcp6" }

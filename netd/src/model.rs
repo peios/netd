@@ -33,11 +33,14 @@ pub enum LinkKind {
 }
 
 impl LinkKind {
+    /// The `Interface.Kind` fact and the inventory's `Kind` value: PNP's
+    /// vocabulary (`wired`, `wireless`, `loopback`, `other`; `tunnel` and
+    /// `bridge` once netd can tell them apart).
     pub fn as_str(self) -> &'static str {
         match self {
             LinkKind::Loopback => "loopback",
-            LinkKind::Ether => "ether",
-            LinkKind::Wireless => "wlan",
+            LinkKind::Ether => "wired",
+            LinkKind::Wireless => "wireless",
             LinkKind::Other => "other",
         }
     }
