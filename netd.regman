@@ -250,8 +250,9 @@ What identified the network and what it offered, netd-written: `Kind`,
 `Server` (DHCP), `Gateway`, `Router` (IPv6), `Prefixes`, `DnsServers`,
 `LastSeen` (epoch seconds), `LastInterface`.
 
---- machine\system\network\resolver
-canonical: Machine\System\Network\Resolver
+--- machine\system\network\dns
+canonical: Machine\System\Network\Dns
 
-resolvd's configuration: fallback servers, static names, policy and its
-control object. netd does not read it; see resolvd.regman.
+Name resolution's machine-wide values: fallback servers, extra search
+domains, static names, and resolvd's control object. netd does not read
+it; see resolvd.regman.
