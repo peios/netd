@@ -8,7 +8,8 @@ description = "Peios network manager - links, addresses, routes and DHCP from th
 
 [files]
 ":usr/sbin/netd" = "usr/sbin/netd"
-# The service definition and a default DHCP-everything profile. Both inert
+# The service definition and the interface-layer baseline (Profiles\default,
+# Rules\Interface\wired: every wired interface joins what it is plugged into). Both inert
 # until an image names them in [registry] autoapply; separately, because
 # starting netd and joining any network a cable is plugged into are two
 # decisions.

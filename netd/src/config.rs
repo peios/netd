@@ -1,106 +1,57 @@
-//! What the registry says the network should be.
+//! What the registry says the network should be — read whole, lowered to
+//! neutral trees, and handed to the pure modules.
 //!
-//! Read whole on start and on every watch event. Absent keys mean documented
-//! defaults; a malformed value is logged and its default used, never a
-//! crash — a typo in one profile must not take the network down.
-
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+//! `Machine\System\Network` is PNP's key. netd reads three things from it:
+//! the machine-level values (`Hostname`, `ControlSecurity`, `Duid`), the
+//! interface layer `Rules\Interface`, and the profile tree `Profiles\`.
+//! Both trees are lowered to [`RawKey`] here and built by `policy.rs`, so
+//! that everything with a law in it is testable without a registry.
+//!
+//! A malformed generation is refused as a whole by the builder; this module
+//! never guesses at a value. A missing root means "no configuration".
 
 use libnetd::NETWORK_KEY;
 use peios::registry::{Key, KeyAccess, OpenFlags, RegValue, ValueType};
 
 use crate::log;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Match {
-    pub name: Option<String>,
-    pub mac: Option<String>,
-    pub path: Option<String>,
-    pub driver: Option<String>,
-    pub kind: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnLeaseExpiry {
-    Drop,
-    Keep,
-}
-
+/// A registry value, lowered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StaticAddress {
-    pub address: IpAddr,
-    pub prefix: u8,
+pub enum RawValue {
+    Int(i64),
+    Str(String),
+    List(Vec<String>),
+    /// A type the vocabulary has no use for (binary, none). Kept so the
+    /// builder can refuse it by name rather than silently drop it.
+    Other,
 }
 
+/// A registry key, lowered: its name, values and subkeys.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AddressConfig {
-    pub dhcp4: bool,
-    /// `IPv6`: solicit routers and autoconfigure (SLAAC + stateless
-    /// DHCPv6). Static IPv6 addresses apply regardless.
-    pub ipv6: bool,
-    /// `IPv6Temporary`: RFC 8981 temporary addresses beside the stable one.
-    pub ipv6_temporary: bool,
-    pub statics: Vec<StaticAddress>,
-    pub gateway: Option<Ipv4Addr>,
-    /// `Gateway6`: a static IPv6 default router, overriding what RAs say.
-    pub gateway6: Option<Ipv6Addr>,
-    pub link_local: bool,
-    pub on_lease_expiry: OnLeaseExpiry,
-    pub route_metric: Option<u32>,
-    pub mtu: Option<u32>,
-    /// Announce a hostname in DHCP (option 12) and accept one back.
-    pub send_hostname: bool,
-    pub accept_hostname: bool,
-}
-
-impl Default for AddressConfig {
-    fn default() -> Self {
-        AddressConfig {
-            dhcp4: true,
-            ipv6: true,
-            ipv6_temporary: false,
-            statics: Vec::new(),
-            gateway: None,
-            gateway6: None,
-            link_local: true,
-            on_lease_expiry: OnLeaseExpiry::Drop,
-            route_metric: None,
-            mtu: None,
-            send_hostname: true,
-            accept_hostname: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DnsConfig {
-    pub servers: Vec<IpAddr>,
-    pub search: Vec<String>,
-    pub use_from_dhcp: bool,
-    /// `DNSDefaultRoute`: unset means "when the interface has a default
-    /// route"; set, it says so outright either way.
-    pub default_route: Option<bool>,
-    /// `DNSExclusive`: while up, no other interface's servers are consulted.
-    pub exclusive: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Profile {
+pub struct RawKey {
     pub name: String,
-    pub priority: u32,
-    pub managed: bool,
-    pub matches: Match,
-    pub address: AddressConfig,
-    pub dns: DnsConfig,
+    pub values: Vec<(String, RawValue)>,
+    pub children: Vec<RawKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     pub hostname: Option<String>,
-    pub profiles: Vec<Profile>,
     /// `ControlSecurity`, raw self-relative SD, if set.
     pub control_security: Option<Vec<u8>>,
+    /// `Duid`: the machine's DHCPv6 identifier, when the operator (or a
+    /// previous netd) has written one.
+    pub duid: Option<Vec<u8>>,
+    /// `Rules\Interface`, when present.
+    pub rules: Option<RawKey>,
+    /// `Profiles`, when present.
+    pub profiles: Option<RawKey>,
 }
+
+/// How deep a rule or profile tree may go before the read stops: pnp-core
+/// refuses deeper nesting anyway (12), and a cycle is impossible in a
+/// registry, so this only bounds a pathological tree.
+const MAX_DEPTH: usize = 16;
 
 fn sz(v: &RegValue) -> Option<String> {
     if v.ty != ValueType::SZ && v.ty != ValueType::EXPAND_SZ {
@@ -110,24 +61,31 @@ fn sz(v: &RegValue) -> Option<String> {
     String::from_utf8(v.data[..end].to_vec()).ok()
 }
 
-fn multi(v: &RegValue) -> Option<Vec<String>> {
-    match v.ty {
-        ValueType::MULTI_SZ => Some(
-            v.data
-                .split(|&b| b == 0)
+fn lower_value(ty: ValueType, data: &[u8]) -> RawValue {
+    match ty {
+        ValueType::DWORD if data.len() == 4 => {
+            RawValue::Int(i64::from(u32::from_le_bytes([data[0], data[1], data[2], data[3]])))
+        }
+        ValueType::QWORD if data.len() == 8 => {
+            let mut b = [0u8; 8];
+            b.copy_from_slice(data);
+            RawValue::Int(i64::from_le_bytes(b))
+        }
+        ValueType::SZ | ValueType::EXPAND_SZ => {
+            let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
+            match String::from_utf8(data[..end].to_vec()) {
+                Ok(s) => RawValue::Str(s),
+                Err(_) => RawValue::Other,
+            }
+        }
+        ValueType::MULTI_SZ => RawValue::List(
+            data.split(|&b| b == 0)
                 .filter(|s| !s.is_empty())
                 .filter_map(|s| String::from_utf8(s.to_vec()).ok())
                 .collect(),
         ),
-        // Be kind: a single SZ where a list was expected is a one-item list.
-        ValueType::SZ => sz(v).map(|s| vec![s]),
-        _ => None,
+        _ => RawValue::Other,
     }
-}
-
-fn dword(v: &RegValue) -> Option<u32> {
-    (v.ty == ValueType::DWORD && v.data.len() == 4)
-        .then(|| u32::from_le_bytes([v.data[0], v.data[1], v.data[2], v.data[3]]))
 }
 
 fn read(key: &Key, name: &str) -> Option<RegValue> {
@@ -140,30 +98,7 @@ fn read_sz(key: &Key, name: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn read_multi(key: &Key, name: &str) -> Vec<String> {
-    read(key, name).and_then(|v| multi(&v)).unwrap_or_default()
-}
-
-fn read_bool(key: &Key, name: &str, default: bool) -> bool {
-    match read(key, name) {
-        None => default,
-        Some(v) => match (dword(&v), sz(&v)) {
-            (Some(d), _) => d != 0,
-            (None, Some(s)) => match s.to_ascii_lowercase().as_str() {
-                "on" | "yes" | "true" | "1" => true,
-                "off" | "no" | "false" | "0" => false,
-                _ => default,
-            },
-            _ => default,
-        },
-    }
-}
-
-fn read_u32(key: &Key, name: &str) -> Option<u32> {
-    read(key, name).and_then(|v| dword(&v).or_else(|| sz(&v).and_then(|s| s.parse().ok())))
-}
-
-fn open(parent: Option<&Key>, path: &str) -> Option<Key> {
+pub fn open(parent: Option<&Key>, path: &str) -> Option<Key> {
     Key::open(
         parent,
         path,
@@ -173,91 +108,80 @@ fn open(parent: Option<&Key>, path: &str) -> Option<Key> {
     .ok()
 }
 
-pub fn parse_cidr(s: &str) -> Option<StaticAddress> {
-    let (a, p) = s.split_once('/')?;
-    let address: IpAddr = a.trim().parse().ok()?;
-    let bits = if address.is_ipv4() { 32 } else { 128 };
-    Some(StaticAddress {
-        address,
-        prefix: p.trim().parse().ok().filter(|p| *p <= bits)?,
-    })
+/// Lowers `key` (named `name`) and everything under it.
+fn read_tree(key: &Key, name: &str, depth: usize) -> RawKey {
+    let mut out = RawKey {
+        name: name.to_owned(),
+        values: Vec::new(),
+        children: Vec::new(),
+    };
+    match key.query_values_batch(None) {
+        Ok(records) => {
+            for r in records {
+                let Ok(vname) = String::from_utf8(r.name.clone()) else {
+                    continue;
+                };
+                if vname.is_empty() {
+                    // The default value carries nothing in either tree.
+                    continue;
+                }
+                out.values.push((vname, lower_value(r.ty, &r.data)));
+            }
+        }
+        Err(e) => log::warn(format_args!("reading values of {name}: {e}")),
+    }
+    // A stable order makes two reads of the same tree compare equal.
+    out.values.sort_by(|a, b| a.0.cmp(&b.0));
+    if depth >= MAX_DEPTH {
+        log::warn(format_args!("{name}: tree deeper than {MAX_DEPTH}; the rest is ignored"));
+        return out;
+    }
+    let mut names: Vec<String> = key
+        .subkeys(None)
+        .filter_map(|s| s.ok())
+        .filter_map(|s| String::from_utf8(s.name).ok())
+        .collect();
+    names.sort();
+    for child in names {
+        if let Some(k) = open(Some(key), &child) {
+            out.children.push(read_tree(&k, &child, depth + 1));
+        }
+    }
+    out
 }
 
-fn parse_profile(name: &str, key: &Key) -> Profile {
-    let matches = match open(Some(key), "Match") {
-        Some(m) => Match {
-            name: read_sz(&m, "Name"),
-            mac: read_sz(&m, "MAC").map(|s| s.to_ascii_lowercase()),
-            path: read_sz(&m, "Path"),
-            driver: read_sz(&m, "Driver"),
-            kind: read_sz(&m, "Type").map(|s| s.to_ascii_lowercase()),
-        },
-        None => Match::default(),
-    };
-    let mut address = AddressConfig::default();
-    if let Some(a) = open(Some(key), "Address") {
-        address.dhcp4 = read_bool(&a, "DHCP4", true);
-        address.ipv6 = read_bool(&a, "IPv6", true);
-        address.ipv6_temporary = read_bool(&a, "IPv6Temporary", false);
-        address.gateway6 = read_sz(&a, "Gateway6").and_then(|s| s.parse().ok());
-        address.statics = read_multi(&a, "Static")
-            .iter()
-            .filter_map(|s| {
-                let r = parse_cidr(s);
-                if r.is_none() {
-                    log::warn(format_args!(
-                        "profile {name}: ignoring malformed Static address {s:?}"
-                    ));
-                }
-                r
-            })
-            .collect();
-        address.gateway = read_sz(&a, "Gateway").and_then(|s| s.parse().ok());
-        address.link_local = read_bool(&a, "LinkLocal", true);
-        address.on_lease_expiry = match read_sz(&a, "OnLeaseExpiry")
-            .as_deref()
-            .map(str::to_ascii_lowercase)
-            .as_deref()
-        {
-            Some("keep") => OnLeaseExpiry::Keep,
-            _ => OnLeaseExpiry::Drop,
-        };
-        address.route_metric = read_u32(&a, "RouteMetric");
-        address.mtu = read_u32(&a, "MTU");
-        address.send_hostname = read_bool(&a, "SendHostname", true);
-        address.accept_hostname = read_bool(&a, "AcceptHostname", false);
+/// Parses a colon- or plain-hex identifier as written for `Duid` and
+/// `ClientId`.
+pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
+    let digits: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if digits.is_empty() || digits.len() % 2 != 0 {
+        return None;
     }
-    let mut dns = DnsConfig {
-        use_from_dhcp: true,
-        ..Default::default()
-    };
-    if let Some(d) = open(Some(key), "DNS") {
-        dns.servers = read_multi(&d, "Servers")
-            .iter()
-            .filter_map(|s| s.parse().ok())
-            .collect();
-        dns.search = read_multi(&d, "SearchDomains");
-        dns.use_from_dhcp = read_bool(&d, "UseFromDHCP", true);
-        dns.default_route = read_u32(&d, "DNSDefaultRoute").map(|v| v != 0);
-        dns.exclusive = read_bool(&d, "DNSExclusive", false);
+    if s.chars().any(|c| !(c.is_ascii_hexdigit() || c == ':' || c == '-' || c.is_ascii_whitespace())) {
+        return None;
     }
-    Profile {
-        name: name.to_owned(),
-        priority: read_u32(key, "Priority").unwrap_or(100),
-        managed: read_bool(key, "Managed", true),
-        matches,
-        address,
-        dns,
-    }
+    (0..digits.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&digits[i..i + 2], 16).ok())
+        .collect()
+}
+
+/// Formats an identifier the way `parse_hex` reads it back.
+pub fn format_hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// Read the whole configuration. A missing root means "no configuration":
-/// netd runs with defaults and nothing matches.
+/// the backstop ignores every interface.
 pub fn load() -> Config {
     let mut config = Config::default();
     let Some(root) = open(None, NETWORK_KEY) else {
         log::warn(format_args!(
-            "{NETWORK_KEY} does not exist; running with no profiles"
+            "{NETWORK_KEY} does not exist; running with no policy"
         ));
         return config;
     };
@@ -265,21 +189,21 @@ pub fn load() -> Config {
     config.control_security = read(&root, "ControlSecurity")
         .filter(|v| v.ty == ValueType::BINARY && !v.data.is_empty())
         .map(|v| v.data);
-    if let Some(profiles) = open(Some(&root), "Profiles") {
-        for subkey in profiles.subkeys(None) {
-            let Ok(subkey) = subkey else { continue };
-            let Ok(name) = String::from_utf8(subkey.name.clone()) else {
-                continue;
-            };
-            if let Some(key) = open(Some(&profiles), &name) {
-                config.profiles.push(parse_profile(&name, &key));
-            }
+    config.duid = read_sz(&root, "Duid").and_then(|s| {
+        let parsed = parse_hex(&s);
+        if parsed.is_none() {
+            log::warn(format_args!("Duid {s:?} is not hex; ignoring it"));
+        }
+        parsed
+    });
+    if let Some(rules) = open(Some(&root), "Rules") {
+        if let Some(layer) = open(Some(&rules), "Interface") {
+            config.rules = Some(read_tree(&layer, "Interface", 0));
         }
     }
-    // Highest priority first; ties by name so the order is stable.
-    config
-        .profiles
-        .sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
+    if let Some(profiles) = open(Some(&root), "Profiles") {
+        config.profiles = Some(read_tree(&profiles, "Profiles", 0));
+    }
     config
 }
 
@@ -290,4 +214,30 @@ pub fn watch() -> peios::Result<Key> {
     key.notify(NotifyFilter::ALL, true)?;
     key.set_nonblocking(true)?;
     Ok(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_identifiers_round_trip() {
+        let id = vec![0, 3, 0, 1, 0x52, 0x54, 0, 1, 2, 3];
+        assert_eq!(parse_hex(&format_hex(&id)).as_deref(), Some(&id[..]));
+        assert_eq!(parse_hex("0003000152540001"), Some(vec![0, 3, 0, 1, 0x52, 0x54, 0, 1]));
+        assert_eq!(parse_hex("00:0g"), None);
+        assert_eq!(parse_hex("abc"), None);
+        assert_eq!(parse_hex(""), None);
+    }
+
+    #[test]
+    fn values_lower_to_their_neutral_shape() {
+        assert_eq!(lower_value(ValueType::DWORD, &7u32.to_le_bytes()), RawValue::Int(7));
+        assert_eq!(lower_value(ValueType::SZ, b"wired\0"), RawValue::Str("wired".into()));
+        assert_eq!(
+            lower_value(ValueType::MULTI_SZ, b"a\0b\0\0"),
+            RawValue::List(vec!["a".into(), "b".into()])
+        );
+        assert_eq!(lower_value(ValueType::BINARY, b"\x01"), RawValue::Other);
+    }
 }

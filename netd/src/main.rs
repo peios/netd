@@ -11,9 +11,11 @@ mod dhcp;
 mod inventory;
 mod ipv6;
 mod log;
-mod matching;
 mod model;
 mod netlink;
+mod networks;
+mod policy;
+mod profile;
 mod reconcile;
 
 use std::collections::BTreeMap;
@@ -28,9 +30,11 @@ use dhcp4::{Action, Client, Config as DhcpConfig, Lease};
 use libnetd::{DnsScope, InterfaceStatus, LeaseStatus, Level, Reply, Request, Snapshot, Status};
 use peios::registry::Key;
 
-use config::{Config, OnLeaseExpiry, Profile};
+use config::Config;
 use model::{Identity, Link, LinkKind, Observed, is_v6_link_local};
 use netlink::{LinuxRtnl, Rtnl};
+use policy::{Judgment, Outcome, Policy};
+use profile::{OnExpiry, Profile};
 use reconcile::Desired;
 
 /// One managed (or at least seen) interface.
@@ -38,8 +42,18 @@ struct Interface {
     ifid: String,
     identity: Identity,
     link: Link,
-    profile: Option<Profile>,
-    enabled: bool,
+    /// What the interface layer said about this interface, and why.
+    judgment: Judgment,
+    /// The network identified on the other side. Sticky while carrier
+    /// holds: a profile switch that the identification itself triggers
+    /// restarts the clients, and the network must not vanish with them.
+    network: Option<networks::Record>,
+    /// A lease arrived or the routers spoke since the last convergence:
+    /// the network may now be identifiable, so judge again.
+    rejudge: bool,
+    /// Something the operator should see beside the state: discovery
+    /// unanswered, a rule conflict.
+    warning: Option<String>,
     dhcp: Option<Dhcp>,
     lease: Option<Lease>,
     /// Set once discovery has gone unanswered; cleared on a lease.
@@ -67,13 +81,69 @@ struct Dhcp6 {
 }
 
 impl Interface {
+    /// Joined: netd stands on this interface. Loopback is never judged.
     fn managed(&self) -> bool {
-        self.profile.as_ref().is_some_and(|p| p.managed) && !self.link.loopback
+        matches!(self.judgment.outcome, Outcome::Join(_)) && !self.link.loopback
+    }
+
+    fn profile(&self) -> Option<&Profile> {
+        if self.link.loopback {
+            return None;
+        }
+        self.judgment.outcome.profile()
+    }
+
+    /// The facts the interface layer judges: the interface and, once
+    /// identified, the network on the other side.
+    fn facts(&self) -> pnp_core::Snapshot<'static> {
+        let non_empty = |s: &str| (!s.is_empty()).then(|| s.into());
+        pnp_core::Snapshot {
+            interface: Some(self.link.name.as_str().into()),
+            interface_kind: Some(self.link.kind.as_str().into()),
+            interface_id: Some(self.ifid.as_str().into()),
+            interface_mac: self.link.mac,
+            interface_path: non_empty(&self.identity.path),
+            interface_driver: non_empty(&self.identity.driver),
+            network_id: self.network.as_ref().map(|n| n.id.as_str().into()),
+            network_name: self.network.as_ref().and_then(|n| n.name.as_deref()).map(Into::into),
+            network_trust: self.network.as_ref().and_then(|n| n.trust.as_deref()).map(Into::into),
+            network_kind: self.network.as_ref().map(|_| self.link.kind.as_str().into()),
+            ..pnp_core::Snapshot::default()
+        }
+    }
+
+    /// What the network has shown on this link, for its identity.
+    fn signals(&self, now: Instant) -> networks::Signals {
+        let mut s = networks::Signals {
+            kind: self.link.kind.as_str().to_owned(),
+            ..Default::default()
+        };
+        if let Some(l) = &self.lease {
+            s.server = Some(l.server);
+            s.subnet = Some(networks::subnet_of(l.address, l.prefix));
+            s.gateway = l.gateway();
+            s.dns.extend(l.dns.iter().copied().map(IpAddr::V4));
+        }
+        if let Some(n) = &self.ndp {
+            s.router6 = n.engine.default_router(now);
+            for a in n.engine.addresses(now) {
+                if a.deprecated {
+                    continue;
+                }
+                let bits = u128::from(a.address);
+                let mask = if a.prefix == 0 { 0 } else { u128::MAX << (128 - u32::from(a.prefix.min(128))) };
+                let net = (Ipv6Addr::from(bits & mask), a.prefix);
+                if !s.prefixes6.contains(&net) {
+                    s.prefixes6.push(net);
+                }
+            }
+            s.dns.extend(n.engine.dns_servers(now).into_iter().map(IpAddr::V6));
+        }
+        s
     }
 
     fn metric(&self) -> u32 {
-        self.profile
-            .as_ref()
+        self.profile()
             .and_then(|p| p.address.route_metric)
             .unwrap_or(match self.link.kind {
                 LinkKind::Wireless => 600,
@@ -82,24 +152,31 @@ impl Interface {
     }
 
     fn desired(&self, now: Instant) -> Option<Desired> {
-        let profile = self.profile.as_ref()?;
-        if !self.managed() {
+        if self.link.loopback {
             return None;
         }
         let mut d = Desired {
             index: self.link.index,
             ..Default::default()
         };
-        if !self.enabled {
-            return Some(d);
-        }
+        let profile = match &self.judgment.outcome {
+            // Never touched: not even a link change.
+            Outcome::Ignore => return None,
+            // Down, and kept down: a desired state with nothing in it.
+            Outcome::Down => return Some(d),
+            Outcome::Join(p) => p,
+        };
         d.up = true;
         let ra_mtu = self.ndp.as_ref().and_then(|n| n.engine.mtu());
-        d.mtu = profile
-            .address
-            .mtu
-            .or(self.lease.as_ref().and_then(|l| l.mtu.map(u32::from)))
-            .or(ra_mtu);
+        let offered_mtu = if profile.address.mtu_offered {
+            self.lease
+                .as_ref()
+                .and_then(|l| l.mtu.map(u32::from))
+                .or(ra_mtu)
+        } else {
+            None
+        };
+        d.mtu = profile.address.mtu.or(offered_mtu);
         let metric = self.metric();
         for s in &profile.address.statics {
             match s.address {
@@ -115,9 +192,13 @@ impl Interface {
         if let Some(lease) = &self.lease {
             d.addresses.push((lease.address, lease.prefix));
             d.broadcast = lease.broadcast;
-            for r in &lease.static_routes {
-                if r.prefix > 0 {
-                    d.routes.push((r.destination, r.prefix, r.gateway, metric));
+            // The lease's routes are the network's word about the way out:
+            // taken only where the profile says `Route.Offered`.
+            if profile.address.route_offered {
+                for r in &lease.static_routes {
+                    if r.prefix > 0 {
+                        d.routes.push((r.destination, r.prefix, r.gateway, metric));
+                    }
                 }
             }
         }
@@ -126,10 +207,13 @@ impl Interface {
                 d.addresses.push((ll, 16));
             }
         }
-        let gateway = profile
-            .address
-            .gateway
-            .or_else(|| self.lease.as_ref().and_then(Lease::gateway));
+        let gateway = profile.address.gateway.or_else(|| {
+            profile
+                .address
+                .route_offered
+                .then(|| self.lease.as_ref().and_then(Lease::gateway))
+                .flatten()
+        });
         if let Some(g) = gateway {
             d.default_route = Some((g, metric));
         }
@@ -143,10 +227,13 @@ impl Interface {
                 });
             }
         }
-        let gateway6 = profile
-            .address
-            .gateway6
-            .or_else(|| self.ndp.as_ref().and_then(|n| n.engine.default_router(now)));
+        let gateway6 = profile.address.gateway6.or_else(|| {
+            profile
+                .address
+                .route_offered
+                .then(|| self.ndp.as_ref().and_then(|n| n.engine.default_router(now)))
+                .flatten()
+        });
         if let Some(g) = gateway6 {
             d.default_route6 = Some((g, metric));
         }
@@ -173,10 +260,10 @@ impl Interface {
 
     fn dns(&self, now: Instant) -> DnsFacts {
         let mut facts = DnsFacts::default();
-        if let Some(p) = &self.profile {
+        if let Some(p) = self.profile() {
             facts.servers.extend(p.dns.servers.iter().copied());
-            facts.search.extend(p.dns.search.iter().cloned());
-            if p.dns.use_from_dhcp {
+            facts.search.extend(p.dns.domains.iter().cloned());
+            if p.dns.offered {
                 if let Some(l) = &self.lease {
                     facts.servers.extend(l.dns.iter().copied().map(IpAddr::V4));
                     if !l.search.is_empty() {
@@ -240,6 +327,11 @@ struct DnsFacts {
 
 struct Netd {
     config: Config,
+    /// The last good generation of the interface layer and its profiles.
+    policy: Policy,
+    /// Why the newest generation was refused, while `policy` stays the
+    /// last good one; cleared when a generation builds.
+    refusal: Option<String>,
     control: control::ControlObject,
     rtnl: LinuxRtnl,
     observed: Observed,
@@ -289,8 +381,10 @@ impl Netd {
                     ifid,
                     identity,
                     link: link.clone(),
-                    profile: None,
-                    enabled: true,
+                    judgment: Judgment::default(),
+                    network: None,
+                    rejudge: false,
+                    warning: None,
                     dhcp: None,
                     lease: None,
                     link_local: None,
@@ -300,37 +394,98 @@ impl Netd {
             });
             let had_carrier = interface.link.carrier && interface.link.up;
             interface.link = link.clone();
-            let profile =
-                matching::select(&self.config.profiles, link, &interface.identity).cloned();
-            if profile != interface.profile {
+            let has_carrier = link.carrier && link.up;
+            if had_carrier && !has_carrier {
+                log::info(format_args!("interface {}: carrier lost", link.name));
+                interface.stop_dhcp(now);
+                interface.stop_ipv6();
+                // The network is on the other side of the carrier.
+                interface.network = None;
+            }
+            interface.rejudge = false;
+            if link.loopback {
+                continue;
+            }
+            let judgment = self.policy.judge(&interface.facts());
+            if judgment.conflict && !interface.judgment.conflict {
+                log::warn(format_args!(
+                    "interface {}: rules {} tie; ignoring it",
+                    link.name, judgment.rule
+                ));
+            }
+            if judgment.outcome != interface.judgment.outcome {
                 log::info(format_args!(
-                    "interface {}: profile {}",
+                    "interface {}: {}{} by {}",
                     link.name,
-                    profile
-                        .as_ref()
-                        .map(|p| p.name.as_str())
-                        .unwrap_or("(none)")
+                    judgment.outcome.as_str(),
+                    judgment
+                        .outcome
+                        .profile()
+                        .map(|p| format!("({})", p.path))
+                        .unwrap_or_default(),
+                    judgment.rule
                 ));
                 // Different intent — a different profile, or the same one
                 // edited — so start over rather than trust the old lease.
                 interface.stop_dhcp(now);
                 interface.stop_ipv6();
             }
-            interface.profile = profile;
-            if !link.loopback {
-                interface.enabled = inventory::sync(&inventory::Record {
-                    ifid: &interface.ifid,
-                    link,
-                    identity: &interface.identity,
-                    profile: interface.profile.as_ref().map(|p| p.name.as_str()),
-                });
+            interface.warning = judgment
+                .conflict
+                .then(|| format!("rules {} tie; the interface is ignored", judgment.rule));
+            interface.judgment = judgment;
+            let readiness = interface.managed().then(|| interface.level(&self.observed));
+            inventory::sync(&inventory::InterfaceRecord {
+                ifid: &interface.ifid,
+                link,
+                identity: &interface.identity,
+                verdict: (!interface.judgment.backstop && !interface.judgment.conflict)
+                    .then(|| interface.judgment.outcome.as_str()),
+                rule: (!interface.judgment.backstop).then_some(interface.judgment.rule.as_str()),
+                profile: interface.profile().map(|p| p.path.as_str()),
+                readiness,
+                last_network: interface.network.as_ref().map(|n| n.id.as_str()),
+            });
+        }
+    }
+
+    /// Identify the network on every link that has shown enough of itself,
+    /// and create or refresh its record. A newly identified network is a
+    /// new fact for the interface layer, so the interface is judged again.
+    fn identify_networks(&mut self, now: Instant) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        for interface in self.interfaces.values_mut() {
+            if !interface.managed() || !(interface.link.up && interface.link.carrier) {
+                continue;
             }
-            let has_carrier = link.carrier && link.up;
-            if had_carrier && !has_carrier {
-                log::info(format_args!("interface {}: carrier lost", link.name));
-                interface.stop_dhcp(now);
-                interface.stop_ipv6();
+            let signals = interface.signals(now);
+            let Some(id) = signals.identity() else {
+                continue;
+            };
+            let known = interface.network.as_ref().is_some_and(|n| n.id == id);
+            let record = inventory::network_sync(&id, &signals, &interface.link.name, now_secs);
+            if !known {
+                log::info(format_args!(
+                    "interface {}: network {}{}",
+                    interface.link.name,
+                    record.name.as_deref().unwrap_or(&id),
+                    record
+                        .trust
+                        .as_deref()
+                        .map(|t| format!(" (trust {t})"))
+                        .unwrap_or_default()
+                ));
+                interface.rejudge = true;
             }
+            if let Some(l) = &interface.lease {
+                if record.requested_address != Some(l.address) {
+                    inventory::set_requested_address(&id, l.address);
+                }
+            }
+            interface.network = Some(record);
         }
     }
 
@@ -338,13 +493,12 @@ impl Netd {
         let hostname = self.config.hostname.clone();
         for interface in self.interfaces.values_mut() {
             let Some((dhcp4, send_hostname)) = interface
-                .profile
-                .as_ref()
-                .map(|p| (p.address.dhcp4, p.address.send_hostname))
+                .profile()
+                .map(|p| (p.address.dhcp4(), p.address.announce_hostname))
             else {
                 continue;
             };
-            let wants = interface.managed() && interface.enabled && dhcp4;
+            let wants = interface.managed() && dhcp4;
             let can = interface.link.up && interface.link.carrier;
             if interface.dhcp.is_some() && !(wants && can) {
                 log::info(format_args!(
@@ -357,7 +511,11 @@ impl Netd {
                 let Some(mac) = interface.link.mac else {
                     continue;
                 };
-                let duid = self.duid.get_or_insert_with(|| dhcp::duid(&mac)).clone();
+                let configured = self.config.duid.clone();
+                let duid = self
+                    .duid
+                    .get_or_insert_with(|| inventory::duid(configured.as_deref(), || dhcp::duid(&mac)))
+                    .clone();
                 let socket =
                     match dhcp::PacketSocket::open(interface.link.index, &interface.link.name) {
                         Ok(s) => s,
@@ -374,9 +532,10 @@ impl Netd {
                     use std::io::Read;
                     let _ = f.read_exact(&mut seed);
                 }
+                let ifid = interface.ifid.clone();
                 let mut client = Client::new(DhcpConfig {
                     chaddr: mac,
-                    client_id: dhcp::client_id(&duid, &interface.ifid),
+                    client_id: inventory::client_id(&ifid, || dhcp::client_id(&duid, &ifid)),
                     hostname: if send_hostname {
                         hostname.clone()
                     } else {
@@ -384,7 +543,18 @@ impl Netd {
                     },
                     seed: u64::from_le_bytes(seed) ^ u64::from(interface.link.index),
                 });
-                let previous = dhcp::remembered(&interface.ifid);
+                // Ask for the address this network gave us last time:
+                // `RequestedAddress` on the record the interface last stood
+                // on, which the operator may also have written as a soft
+                // reservation.
+                let previous = interface
+                    .network
+                    .as_ref()
+                    .and_then(|n| n.requested_address)
+                    .or_else(|| {
+                        inventory::last_network(&ifid)
+                            .and_then(|id| inventory::requested_address(&id))
+                    });
                 let actions = client.start(now, previous);
                 log::info(format_args!(
                     "interface {}: dhcp starting",
@@ -404,10 +574,10 @@ impl Netd {
     /// asked for it. Both die with the carrier or the profile.
     fn start_ipv6_where_due(&mut self, now: Instant) {
         for interface in self.interfaces.values_mut() {
-            let Some(ipv6_wanted) = interface.profile.as_ref().map(|p| p.address.ipv6) else {
+            let Some(ipv6_wanted) = interface.profile().map(|p| p.address.autoconf6()) else {
                 continue;
             };
-            let wants = interface.managed() && interface.enabled && ipv6_wanted;
+            let wants = interface.managed() && ipv6_wanted;
             let link_local = link_local_of(&self.observed, interface.link.index);
             let can = interface.link.up && interface.link.carrier && link_local.is_some();
             if interface.ndp.is_some() && !(wants && can) {
@@ -438,10 +608,7 @@ impl Netd {
                 let mut engine = ndp::Engine::new(ndp::Config {
                     interface: interface.ifid.clone(),
                     secret,
-                    temporary: interface
-                        .profile
-                        .as_ref()
-                        .is_some_and(|p| p.address.ipv6_temporary),
+                    temporary: interface.profile().is_some_and(|p| p.address.temporary),
                     mac: interface.link.mac,
                     seed,
                 });
@@ -479,7 +646,11 @@ impl Netd {
                 let Some(mac) = interface.link.mac else {
                     continue;
                 };
-                let duid = self.duid.get_or_insert_with(|| dhcp::duid(&mac)).clone();
+                let configured = self.config.duid.clone();
+                let duid = self
+                    .duid
+                    .get_or_insert_with(|| inventory::duid(configured.as_deref(), || dhcp::duid(&mac)))
+                    .clone();
                 let mut seed = [0u8; 8];
                 if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
                     use std::io::Read;
@@ -523,10 +694,7 @@ impl Netd {
 
     fn apply_hostname(&mut self) {
         let from_lease = self.interfaces.values().find_map(|i| {
-            let accept = i
-                .profile
-                .as_ref()
-                .is_some_and(|p| p.address.accept_hostname);
+            let accept = i.profile().is_some_and(|p| p.address.accept_hostname);
             accept
                 .then(|| i.lease.as_ref().and_then(|l| l.hostname.clone()))
                 .flatten()
@@ -564,7 +732,7 @@ impl Netd {
                 continue;
             }
             let facts = i.dns(now);
-            let dns = i.profile.as_ref().map(|p| &p.dns);
+            let dns = i.profile().map(|p| &p.dns);
             scopes.push(DnsScope {
                 ifid: i.ifid.clone(),
                 name: i.link.name.clone(),
@@ -601,8 +769,26 @@ impl Netd {
         let level = self.status().level;
         if self.last_level != Some(level) {
             self.last_level = Some(level);
-            log::info(format_args!("machine level is {}", level.as_str()));
+            log::info(format_args!("machine readiness is {}", level.as_str()));
             notify_level(level);
+            inventory::machine_readiness(level);
+        }
+        // Per-interface readiness lives on each Status key; a reconcile
+        // can move it without a link event, so it is refreshed here too.
+        for i in self.interfaces.values() {
+            if !i.managed() {
+                continue;
+            }
+            inventory::sync(&inventory::InterfaceRecord {
+                ifid: &i.ifid,
+                link: &i.link,
+                identity: &i.identity,
+                verdict: Some(i.judgment.outcome.as_str()),
+                rule: Some(i.judgment.rule.as_str()),
+                profile: i.profile().map(|p| p.path.as_str()),
+                readiness: Some(i.level(&self.observed)),
+                last_network: i.network.as_ref().map(|n| n.id.as_str()),
+            });
         }
 
         let snapshot = self.snapshot();
@@ -614,6 +800,47 @@ impl Netd {
         self.subscribers.retain_mut(|s| send_nonblocking(s, &bytes));
     }
 
+    /// A new generation of the interface layer: built, checked against
+    /// every interface for a tie between rules, and then either taken or
+    /// refused with the last good one kept. The firewall's generations are
+    /// the kernel's business; one executor's refusal never stalls another.
+    fn take_generation(&mut self, fresh: &Config) {
+        match policy::build(fresh.rules.as_ref(), fresh.profiles.as_ref()) {
+            Ok(policy) => {
+                for l in &policy.lints {
+                    log::warn(format_args!("{l}"));
+                }
+                let tie = self
+                    .interfaces
+                    .values()
+                    .filter(|i| !i.link.loopback)
+                    .map(|i| (i.link.name.clone(), policy.judge(&i.facts())))
+                    .find(|(_, j)| j.conflict);
+                if let Some((name, j)) = tie {
+                    let why = format!("rules {} tie on interface {name}", j.rule);
+                    log::error(format_args!(
+                        "interface layer refused: {why}; the last good generation stands"
+                    ));
+                    self.refusal = Some(why);
+                    return;
+                }
+                log::info(format_args!(
+                    "interface layer: {} rule tree(s), {} profile(s)",
+                    policy.forest.as_ref().map_or(0, |f| f.roots.len()),
+                    policy.profiles.len()
+                ));
+                self.policy = policy;
+                self.refusal = None;
+            }
+            Err(e) => {
+                log::error(format_args!(
+                    "interface layer refused: {e}; the last good generation stands"
+                ));
+                self.refusal = Some(e);
+            }
+        }
+    }
+
     /// The full pass: links, DHCP starts, reconcile, hostname, publish.
     ///
     /// Repeated until a pass leaves the kernel unchanged, because applying
@@ -622,6 +849,7 @@ impl Netd {
     /// for a later event that, on a virtual NIC, has already happened.
     fn converge(&mut self, now: Instant) {
         for _ in 0..4 {
+            self.identify_networks(now);
             self.sync_links(now);
             self.start_dhcp_where_due(now);
             self.start_ipv6_where_due(now);
@@ -660,9 +888,14 @@ impl Netd {
                     .unwrap_or_default(),
                 path: i.identity.path.clone(),
                 driver: i.identity.driver.clone(),
-                profile: i.profile.as_ref().map(|p| p.name.clone()),
-                managed: i.managed(),
-                enabled: i.enabled,
+                verdict: (!i.judgment.backstop && !i.judgment.conflict)
+                    .then(|| i.judgment.outcome.as_str().to_owned()),
+                rule: Some(i.judgment.rule.clone()),
+                profile: i.profile().map(|p| p.path.clone()),
+                network: i.network.as_ref().map(|n| n.id.clone()),
+                network_name: i.network.as_ref().and_then(|n| n.name.clone()),
+                network_trust: i.network.as_ref().and_then(|n| n.trust.clone()),
+                warning: i.warning.clone(),
                 up: i.link.up,
                 carrier: i.link.carrier,
                 level: l,
@@ -697,6 +930,7 @@ impl Netd {
         Status {
             hostname: self.hostname_set.clone().unwrap_or_default(),
             level,
+            refusal: self.refusal.clone(),
             interfaces,
         }
     }
@@ -856,13 +1090,19 @@ impl Interface {
                         "interface {}: lease {}/{} from {} for {}s",
                         self.link.name, lease.address, lease.prefix, lease.server, lease.lease_time
                     ));
-                    dhcp::remember(&self.ifid, &lease);
                     self.lease = Some(lease);
                     self.link_local = None;
+                    self.warning = None;
+                    // The server has shown itself: the network may now be
+                    // identifiable, which is a converge decision.
+                    self.rejudge = true;
                     changed = true;
                 }
                 Action::NoOffer => {
-                    let wants_ll = self.profile.as_ref().is_some_and(|p| p.address.link_local);
+                    if self.warning.is_none() {
+                        self.warning = Some("asked for an address; nobody answered".into());
+                    }
+                    let wants_ll = self.profile().is_some_and(|p| p.address.link_local);
                     if wants_ll && self.link_local.is_none() {
                         let ll = Netd::link_local_for(self.link.mac.as_ref(), self.link.index);
                         log::info(format_args!(
@@ -875,18 +1115,16 @@ impl Interface {
                 }
                 Action::Lost => {
                     let keep = self
-                        .profile
-                        .as_ref()
-                        .is_some_and(|p| p.address.on_lease_expiry == OnLeaseExpiry::Keep);
+                        .profile()
+                        .is_some_and(|p| p.address.on_expiry == OnExpiry::Keep);
                     if keep {
                         log::warn(format_args!(
-                            "interface {}: lease lost; keeping the address (OnLeaseExpiry=Keep)",
+                            "interface {}: lease lost; keeping the address (Address.OnExpiry = Keep)",
                             self.link.name
                         ));
                     } else {
                         log::info(format_args!("interface {}: lease lost", self.link.name));
                         self.lease = None;
-                        dhcp::forget(&self.ifid);
                         changed = true;
                     }
                 }
@@ -980,6 +1218,18 @@ fn main() -> ExitCode {
     // the network.
     ipv6::kernel_ra_off();
     let config = config::load();
+    let (policy, refusal) = match policy::build(config.rules.as_ref(), config.profiles.as_ref()) {
+        Ok(p) => {
+            for l in &p.lints {
+                log::warn(format_args!("{l}"));
+            }
+            (p, None)
+        }
+        Err(e) => {
+            log::error(format_args!("interface layer refused: {e}; every interface is ignored"));
+            (Policy::default(), Some(e))
+        }
+    };
     let mut watch: Option<Key> = match config::watch() {
         Ok(k) => Some(k),
         Err(e) => {
@@ -992,6 +1242,8 @@ fn main() -> ExitCode {
     let control = control::ControlObject::new(config.control_security.as_deref());
     let mut netd = Netd {
         config,
+        policy,
+        refusal,
         control,
         rtnl,
         observed: Observed::default(),
@@ -1011,8 +1263,9 @@ fn main() -> ExitCode {
         }
     }
     log::info(format_args!(
-        "{} profile(s), {} link(s)",
-        netd.config.profiles.len(),
+        "{} rule tree(s), {} profile(s), {} link(s)",
+        netd.policy.forest.as_ref().map_or(0, |f| f.roots.len()),
+        netd.policy.profiles.len(),
         netd.observed.links.len()
     ));
     netd.converge(Instant::now());
@@ -1134,6 +1387,11 @@ fn main() -> ExitCode {
                                 log::info(format_args!("configuration changed"));
                                 netd.control =
                                     control::ControlObject::new(fresh.control_security.as_deref());
+                                if fresh.rules != netd.config.rules
+                                    || fresh.profiles != netd.config.profiles
+                                {
+                                    netd.take_generation(&fresh);
+                                }
                                 netd.config = fresh;
                             }
                             converge = true;
@@ -1245,6 +1503,9 @@ fn main() -> ExitCode {
         }
         if fds[1].revents != 0 {
             netd.handle_control(&listener);
+        }
+        if netd.interfaces.values().any(|i| i.rejudge) {
+            converge = true;
         }
 
         if converge {

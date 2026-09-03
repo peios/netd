@@ -14,7 +14,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
 use dhcp4::packet::{CLIENT_PORT, SERVER_PORT};
-use dhcp4::{Destination, Lease, Message};
+use dhcp4::{Destination, Message};
 use libnetd::NETD_STATE_DIR;
 
 use crate::log;
@@ -333,10 +333,6 @@ impl Absorber {
 
 // ---- persistence ------------------------------------------------------------
 
-fn leases_dir() -> PathBuf {
-    PathBuf::from(NETD_STATE_DIR).join("leases")
-}
-
 /// The machine's DUID (RFC 8415 DUID-LL from the first MAC seen), created
 /// once and kept. RFC 4361 client ids are built on it, so a NIC swap in the
 /// same slot keeps the same identity at the server.
@@ -365,29 +361,6 @@ pub fn client_id(duid: &[u8], ifid: &str) -> Vec<u8> {
     id.extend_from_slice(&iaid);
     id.extend_from_slice(duid);
     id
-}
-
-/// Remember the lease address for INIT-REBOOT next boot.
-pub fn remember(ifid: &str, lease: &Lease) {
-    let dir = leases_dir();
-    let text = format!("address={}\nserver={}\n", lease.address, lease.server);
-    let path = dir.join(ifid);
-    let tmp = dir.join(format!("{ifid}.new"));
-    if let Err(e) = std::fs::create_dir_all(&dir)
-        .and_then(|_| std::fs::write(&tmp, text))
-        .and_then(|_| std::fs::rename(&tmp, &path))
-    {
-        log::warn(format_args!("could not persist the lease for {ifid}: {e}"));
-    }
-}
-
-pub fn forget(ifid: &str) {
-    let _ = std::fs::remove_file(leases_dir().join(ifid));
-}
-
-pub fn remembered(ifid: &str) -> Option<Ipv4Addr> {
-    let text = std::fs::read_to_string(leases_dir().join(ifid)).ok()?;
-    text.lines().find_map(|l| l.strip_prefix("address=")).and_then(|a| a.parse().ok())
 }
 
 #[cfg(test)]
