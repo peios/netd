@@ -444,7 +444,7 @@ impl Netd {
                 rule: (!interface.judgment.backstop).then_some(interface.judgment.rule.as_str()),
                 profile: interface.profile().map(|p| p.path.as_str()),
                 readiness,
-                last_network: interface.network.as_ref().map(|n| n.id.as_str()),
+                network: interface.network.as_ref().map(|n| n.id.as_str()),
             });
         }
     }
@@ -787,7 +787,7 @@ impl Netd {
                 rule: Some(i.judgment.rule.as_str()),
                 profile: i.profile().map(|p| p.path.as_str()),
                 readiness: Some(i.level(&self.observed)),
-                last_network: i.network.as_ref().map(|n| n.id.as_str()),
+                network: i.network.as_ref().map(|n| n.id.as_str()),
             });
         }
 
