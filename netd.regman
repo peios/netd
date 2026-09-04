@@ -195,9 +195,13 @@ refused, not silently reverted. Values: `Name` (kernel name), `Kind`,
 `Interface.*` facts, by the same names; `Verdict` (`JOIN`, `IGNORE`,
 `DOWN`; absent when no rule spoke or rules tied); `Rule` (the rule path
 that spoke, or `backstop`); `Profile` (the profile path, `JOIN` only);
-`Readiness` (present only while joined); `LastNetwork` (the network
-record last identified on this link, which is where the next DHCP request
-finds `RequestedAddress`).
+`Readiness` (present only while joined); `Network` (the record of the
+network identified on this link right now — set when the network is
+identified, removed when the carrier goes — which the kernel reads for
+the packet layers' `Network.*` facts, see the network policy reference);
+`LastNetwork` (the record the link last stood on, kept across carrier
+loss and restarts, which is where the next DHCP request finds
+`RequestedAddress`).
 
 --- machine\system\network\networks
 canonical: Machine\System\Network\Networks
@@ -211,7 +215,11 @@ replace the guess without changing the key.
 
 A record appears the first time an interface stands on the network; the
 `Network.*` facts the interface layer conditions on are read from it, so
-a rule can say "on this network, this profile" — the laptop case.
+a rule can say "on this network, this profile" — the laptop case. The
+kernel reads the same record for the packet layers: an interface's
+`Status Network` names it, and its `Name` and `Trust` become the
+`Network.*` facts of every packet crossing that interface, so "on this
+network, this door open" is the same three facts in `Rules\Flow`.
 
 --- machine\system\network\networks\<netid> name
 canonical: Machine\System\Network\Networks\<netid> Name
@@ -227,10 +235,13 @@ type: REG_SZ
 default: (unset)
 applies: live
 
-The operator's word on the network; the `Network.Trust` fact. Until the
-trust pass gives it a vocabulary and evidence, it is exactly what was
-written, and a rule that conditions on it is stating that the operator
-accepts the identification.
+The operator's word on the network; the `Network.Trust` fact, in the
+interface layer and the packet layers alike. Until the trust pass gives
+it a vocabulary and evidence, it is exactly what was written, and a rule
+that conditions on it is stating that the operator accepts the
+identification. Editing it is a policy change: the kernel publishes a
+new generation and every flow on an interface standing on this network
+is re-judged on its next packet.
 
 --- machine\system\network\networks\<netid> requestedaddress
 canonical: Machine\System\Network\Networks\<netid> RequestedAddress

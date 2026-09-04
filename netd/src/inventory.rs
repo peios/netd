@@ -37,8 +37,11 @@ pub struct InterfaceRecord<'a> {
     pub profile: Option<&'a str>,
     /// Readiness, joined interfaces only.
     pub readiness: Option<Level>,
-    /// The network record last seen on this interface.
-    pub last_network: Option<&'a str>,
+    /// The network record identified on this interface right now: set
+    /// when the network is identified, cleared when the carrier goes.
+    /// The kernel reads it for the packet layers' `Network.*` facts, so
+    /// it must never name a network the link is not on.
+    pub network: Option<&'a str>,
 }
 
 /// Only SYSTEM writes a `Status` key; everyone reads it. Protected, so
@@ -180,7 +183,13 @@ pub fn sync(record: &InterfaceRecord<'_>) {
     set_opt_sz(&status, "Rule", record.rule);
     set_opt_sz(&status, "Profile", record.profile);
     set_opt_sz(&status, "Readiness", record.readiness.map(Level::as_str));
-    set_opt_sz(&status, "LastNetwork", record.last_network);
+    set_opt_sz(&status, "Network", record.network);
+    // `LastNetwork` is sticky: it names the record the link last stood
+    // on, which is where the next DHCP request finds `RequestedAddress`,
+    // so it survives the carrier going and netd restarting.
+    if let Some(network) = record.network {
+        set_sz(&status, "LastNetwork", network);
+    }
 }
 
 /// The interface's DHCPv4 client identifier: the operator's if written,
