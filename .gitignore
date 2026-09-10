@@ -3,4 +3,5 @@
 /fuzz/target
 /fuzz/artifacts
 /fuzz/corpus
+/fuzz/fuzz-*.log
 __pycache__/
