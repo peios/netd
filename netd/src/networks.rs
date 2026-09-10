@@ -78,8 +78,22 @@ fn derive(kind: &str, basis: &str) -> String {
     b[8] = (b[8] & 0x3f) | 0x80;
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
-        b[14], b[15]
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
     )
 }
 
@@ -111,7 +125,11 @@ mod tests {
         };
         let mut b = a.clone();
         b.subnet = Some(subnet_of(Ipv4Addr::new(10, 0, 2, 99), 24));
-        assert_eq!(a.identity(), b.identity(), "another address in the same subnet");
+        assert_eq!(
+            a.identity(),
+            b.identity(),
+            "another address in the same subnet"
+        );
         b.server = Some(Ipv4Addr::new(10, 0, 3, 1));
         assert_ne!(a.identity(), b.identity(), "another server");
         assert_eq!(a.identity().unwrap().len(), 36);
@@ -135,6 +153,9 @@ mod tests {
             subnet_of(Ipv4Addr::new(192, 168, 1, 77), 24),
             (Ipv4Addr::new(192, 168, 1, 0), 24)
         );
-        assert_eq!(subnet_of(Ipv4Addr::new(10, 1, 2, 3), 0), (Ipv4Addr::new(0, 0, 0, 0), 0));
+        assert_eq!(
+            subnet_of(Ipv4Addr::new(10, 1, 2, 3), 0),
+            (Ipv4Addr::new(0, 0, 0, 0), 0)
+        );
     }
 }

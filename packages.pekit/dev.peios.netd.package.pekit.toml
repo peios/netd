@@ -1,0 +1,33 @@
+# Keep man-db's search index coherent when the service manual is installed.
+side_effects = ["man-db"]
+
+# The privileged network authority, its inert service seed and opt-in default
+# profile, its complete registry reference, and an empty protected state root.
+# The `net` client remains an independently installable protocol consumer.
+[package]
+name        = "dev.peios.netd"
+description = "Peios network manager for links, addresses, routes, and DHCP"
+
+[provides]
+netd = "{{version}}-15"
+
+[replaces]
+netd = "<= 0.1.0-14"
+
+[dependencies]
+"dev.peios.libpeios" = ">= 0.5.0"
+"org.gnu.glibc"      = "*"
+"org.gnu.gcc-libgcc" = "*"
+
+[files]
+"@source:LICENSE"                                = "usr/share/licenses/dev.peios.netd/LICENSE"
+":licenses/**"                                   = "usr/share/licenses/dev.peios.netd/third-party"
+":usr/sbin/netd"                                 = "usr/sbin/netd"
+":usr/share/regim/netd-service.reg"              = "usr/share/regim/netd-service.reg"
+":usr/share/regim/netd-default-profile.reg"      = "usr/share/regim/netd-default-profile.reg"
+":usr/share/regman/netd.regman"                  = "usr/share/regman/netd.regman"
+":usr/share/man/man8/netd.8.gz"                  = "usr/share/man/man8/netd.8.gz"
+":var/state/netd"                                = "var/state/netd"
+
+[sd_overrides]
+"var/state/netd" = "O:SYG:SYD:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)"

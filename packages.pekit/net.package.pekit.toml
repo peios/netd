@@ -1,7 +1,0 @@
-# net — the netd operator command: status, renew, reconcile, wait.
-
-[package]
-description = "Operator command for the Peios network manager"
-
-[files]
-":usr/bin/net" = "usr/bin/net"

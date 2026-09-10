@@ -3,6 +3,7 @@ name = "net"
 description = "The netd operator command: status, renew, reconcile, profiles."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 

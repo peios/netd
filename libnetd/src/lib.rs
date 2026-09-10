@@ -53,9 +53,10 @@ pub const MAX_MESSAGE_BYTES: usize = 65_536;
 ///
 /// "Online" is not a boolean on Peios: a service says which level it needs.
 /// Ordered, so `max()` over interfaces is the machine's level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Level {
     /// Not configured, or no profile matched it.
+    #[default]
     Absent,
     /// Administratively up with carrier.
     Link,
@@ -212,12 +213,6 @@ pub struct Status {
     /// the last good one stands.
     pub refusal: Option<String>,
     pub interfaces: Vec<InterfaceStatus>,
-}
-
-impl Default for Level {
-    fn default() -> Self {
-        Level::Absent
-    }
 }
 
 /// What one interface contributes to name resolution. The unit of the

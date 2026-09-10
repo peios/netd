@@ -21,15 +21,15 @@
 use std::collections::BTreeMap;
 
 use pnp_core::{
-    build_forest, evaluate, BuildError, EvalContext, Forest, Layer, RegValue, RuleInput,
-    Snapshot, Verdict,
+    BuildError, EvalContext, Forest, Layer, RegValue, RuleInput, Snapshot, Verdict, build_forest,
+    evaluate,
 };
 
 use crate::config::{RawKey, RawValue};
 use crate::profile::{self, Profile};
 
 /// A built generation: the forest and the profiles it may name.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Policy {
     /// `None` when `Rules\Interface` is absent: the backstop answers for
     /// every interface.
@@ -38,16 +38,6 @@ pub struct Policy {
     pub profiles: BTreeMap<String, Profile>,
     /// Non-fatal findings (a condition that can never hold at this layer).
     pub lints: Vec<String>,
-}
-
-impl Default for Policy {
-    fn default() -> Self {
-        Policy {
-            forest: None,
-            profiles: BTreeMap::new(),
-            lints: Vec::new(),
-        }
-    }
 }
 
 /// What the layer said about one interface.
@@ -154,7 +144,7 @@ fn lower(
                 RegValue::List(out.into())
             }
             RawValue::Other => {
-                return Err(format!("rule {here}: value {name} has an unsupported type"))
+                return Err(format!("rule {here}: value {name} has an unsupported type"));
             }
         };
         input
@@ -190,7 +180,9 @@ fn describe(e: &BuildError) -> String {
         BuildError::CounterNeverWritten { rule, key } => {
             format!("rule {rule}: {key} reads a stream nobody writes")
         }
-        BuildError::TagDownwardRead { rule, name } => format!("rule {rule}: downward read of {name}"),
+        BuildError::TagDownwardRead { rule, name } => {
+            format!("rule {rule}: downward read of {name}")
+        }
         BuildError::PresentNeverAtLayer { rule, key } => {
             format!("rule {rule}: {key} on a fact that never exists at this layer")
         }
@@ -230,7 +222,13 @@ pub fn build(rules: Option<&RawKey>, profiles: Option<&RawKey>) -> Result<Policy
     let lints = out
         .lints
         .iter()
-        .map(|l| format!("rule {}: {} can never hold at the interface layer", l.rule.as_str(), l.key.as_str()))
+        .map(|l| {
+            format!(
+                "rule {}: {} can never hold at the interface layer",
+                l.rule.as_str(),
+                l.key.as_str()
+            )
+        })
         .collect();
     Ok(Policy {
         forest: Some(out.forest),
@@ -252,7 +250,9 @@ impl Policy {
             let mut names: Vec<&str> = e
                 .candidates
                 .iter()
-                .filter(|c| c.priority == e.candidates.iter().map(|c| c.priority).max().unwrap_or(0))
+                .filter(|c| {
+                    c.priority == e.candidates.iter().map(|c| c.priority).max().unwrap_or(0)
+                })
                 .map(|c| c.rule.as_str())
                 .collect();
             names.sort_unstable();
@@ -293,7 +293,10 @@ mod tests {
     fn key(name: &str, values: &[(&str, RawValue)], children: Vec<RawKey>) -> RawKey {
         RawKey {
             name: name.into(),
-            values: values.iter().map(|(n, v)| ((*n).to_owned(), v.clone())).collect(),
+            values: values
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), v.clone()))
+                .collect(),
             children,
         }
     }
@@ -410,7 +413,11 @@ mod tests {
         );
         let err = build(Some(&rules), Some(&profiles())).unwrap_err();
         assert!(err.contains("does not speak"), "{err}");
-        let bad = key("Profiles", &[], vec![key("x", &[("Nope", RawValue::Int(1))], vec![])]);
+        let bad = key(
+            "Profiles",
+            &[],
+            vec![key("x", &[("Nope", RawValue::Int(1))], vec![])],
+        );
         let err = build(None, Some(&bad)).unwrap_err();
         assert!(err.contains("unknown value"), "{err}");
     }
@@ -458,7 +465,10 @@ mod tests {
 
     #[test]
     fn join_targets_are_recognised_loosely() {
-        assert_eq!(join_target(" join ( Office\\London ) "), Some("office/london".into()));
+        assert_eq!(
+            join_target(" join ( Office\\London ) "),
+            Some("office/london".into())
+        );
         assert_eq!(join_target("JOIN(x)"), Some("x".into()));
         assert_eq!(join_target("IGNORE"), None);
         assert_eq!(join_target("JOIN("), None);

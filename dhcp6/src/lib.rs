@@ -122,13 +122,13 @@ impl Client {
         if self.refresh_at.is_some_and(|at| now >= at) {
             self.begin_exchange(now);
         }
-        if let Some(at) = self.retransmit_at {
-            if now >= at {
-                actions.push(Action::Send(self.request(now)));
-                let jittered = self.jitter(self.retransmit_interval);
-                self.retransmit_interval = (self.retransmit_interval * 2).min(MAX_RETRANSMIT);
-                self.retransmit_at = Some(now + jittered);
-            }
+        if let Some(at) = self.retransmit_at
+            && now >= at
+        {
+            actions.push(Action::Send(self.request(now)));
+            let jittered = self.jitter(self.retransmit_interval);
+            self.retransmit_interval = (self.retransmit_interval * 2).min(MAX_RETRANSMIT);
+            self.retransmit_at = Some(now + jittered);
         }
         actions
     }

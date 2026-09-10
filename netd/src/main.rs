@@ -105,9 +105,20 @@ impl Interface {
             interface_path: non_empty(&self.identity.path),
             interface_driver: non_empty(&self.identity.driver),
             network_id: self.network.as_ref().map(|n| n.id.as_str().into()),
-            network_name: self.network.as_ref().and_then(|n| n.name.as_deref()).map(Into::into),
-            network_trust: self.network.as_ref().and_then(|n| n.trust.as_deref()).map(Into::into),
-            network_kind: self.network.as_ref().map(|_| self.link.kind.as_str().into()),
+            network_name: self
+                .network
+                .as_ref()
+                .and_then(|n| n.name.as_deref())
+                .map(Into::into),
+            network_trust: self
+                .network
+                .as_ref()
+                .and_then(|n| n.trust.as_deref())
+                .map(Into::into),
+            network_kind: self
+                .network
+                .as_ref()
+                .map(|_| self.link.kind.as_str().into()),
             ..pnp_core::Snapshot::default()
         }
     }
@@ -131,13 +142,18 @@ impl Interface {
                     continue;
                 }
                 let bits = u128::from(a.address);
-                let mask = if a.prefix == 0 { 0 } else { u128::MAX << (128 - u32::from(a.prefix.min(128))) };
+                let mask = if a.prefix == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - u32::from(a.prefix.min(128)))
+                };
                 let net = (Ipv6Addr::from(bits & mask), a.prefix);
                 if !s.prefixes6.contains(&net) {
                     s.prefixes6.push(net);
                 }
             }
-            s.dns.extend(n.engine.dns_servers(now).into_iter().map(IpAddr::V6));
+            s.dns
+                .extend(n.engine.dns_servers(now).into_iter().map(IpAddr::V6));
         }
         s
     }
@@ -202,10 +218,11 @@ impl Interface {
                 }
             }
         }
-        if let Some(ll) = self.link_local {
-            if self.lease.is_none() && profile.address.statics.is_empty() {
-                d.addresses.push((ll, 16));
-            }
+        if let Some(ll) = self.link_local
+            && self.lease.is_none()
+            && profile.address.statics.is_empty()
+        {
+            d.addresses.push((ll, 16));
         }
         let gateway = profile.address.gateway.or_else(|| {
             profile
@@ -458,7 +475,7 @@ impl Netd {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         for interface in self.interfaces.values_mut() {
-            if !interface.managed() || !(interface.link.up && interface.link.carrier) {
+            if !(interface.managed() && interface.link.up && interface.link.carrier) {
                 continue;
             }
             let signals = interface.signals(now);
@@ -480,10 +497,10 @@ impl Netd {
                 ));
                 interface.rejudge = true;
             }
-            if let Some(l) = &interface.lease {
-                if record.requested_address != Some(l.address) {
-                    inventory::set_requested_address(&id, l.address);
-                }
+            if let Some(l) = &interface.lease
+                && record.requested_address != Some(l.address)
+            {
+                inventory::set_requested_address(&id, l.address);
             }
             interface.network = Some(record);
         }
@@ -514,7 +531,9 @@ impl Netd {
                 let configured = self.config.duid.clone();
                 let duid = self
                     .duid
-                    .get_or_insert_with(|| inventory::duid(configured.as_deref(), || dhcp::duid(&mac)))
+                    .get_or_insert_with(|| {
+                        inventory::duid(configured.as_deref(), || dhcp::duid(&mac))
+                    })
                     .clone();
                 let socket =
                     match dhcp::PacketSocket::open(interface.link.index, &interface.link.name) {
@@ -649,7 +668,9 @@ impl Netd {
                 let configured = self.config.duid.clone();
                 let duid = self
                     .duid
-                    .get_or_insert_with(|| inventory::duid(configured.as_deref(), || dhcp::duid(&mac)))
+                    .get_or_insert_with(|| {
+                        inventory::duid(configured.as_deref(), || dhcp::duid(&mac))
+                    })
                     .clone();
                 let mut seed = [0u8; 8];
                 if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
@@ -1030,10 +1051,10 @@ impl Interface {
         for action in actions {
             match action {
                 ndp::Action::Solicit(body) => {
-                    if let Some(n) = &self.ndp {
-                        if let Err(e) = n.socket.solicit(&body) {
-                            log::warn(format_args!("interface {}: solicit: {e}", self.link.name));
-                        }
+                    if let Some(n) = &self.ndp
+                        && let Err(e) = n.socket.solicit(&body)
+                    {
+                        log::warn(format_args!("interface {}: solicit: {e}", self.link.name));
                     }
                 }
                 ndp::Action::Changed => changed = true,
@@ -1048,13 +1069,13 @@ impl Interface {
         for action in actions {
             match action {
                 dhcp6::Action::Send(message) => {
-                    if let Some(d) = &self.dhcp6 {
-                        if let Err(e) = d.socket.send(&message) {
-                            log::warn(format_args!(
-                                "interface {}: dhcpv6 send: {e}",
-                                self.link.name
-                            ));
-                        }
+                    if let Some(d) = &self.dhcp6
+                        && let Err(e) = d.socket.send(&message)
+                    {
+                        log::warn(format_args!(
+                            "interface {}: dhcpv6 send: {e}",
+                            self.link.name
+                        ));
                     }
                 }
                 dhcp6::Action::Changed => {
@@ -1079,10 +1100,10 @@ impl Interface {
                     message,
                     destination,
                 } => {
-                    if let Some(d) = &self.dhcp {
-                        if let Err(e) = d.socket.send(&message, destination) {
-                            log::warn(format_args!("interface {}: dhcp send: {e}", self.link.name));
-                        }
+                    if let Some(d) = &self.dhcp
+                        && let Err(e) = d.socket.send(&message, destination)
+                    {
+                        log::warn(format_args!("interface {}: dhcp send: {e}", self.link.name));
                     }
                 }
                 Action::Bound(lease) => {
@@ -1226,7 +1247,9 @@ fn main() -> ExitCode {
             (p, None)
         }
         Err(e) => {
-            log::error(format_args!("interface layer refused: {e}; every interface is ignored"));
+            log::error(format_args!(
+                "interface layer refused: {e}; every interface is ignored"
+            ));
             (Policy::default(), Some(e))
         }
     };
@@ -1373,44 +1396,42 @@ fn main() -> ExitCode {
                 Err(e) => log::warn(format_args!("netlink dump: {e}")),
             }
         }
-        if let Some(slot) = watch_slot {
-            if fds[slot].revents != 0 {
-                if let Some(w) = &watch {
-                    match w.read_watch_events(&mut watch_buffer) {
-                        Ok(events) if !events.is_empty() => {
-                            // Our own inventory writes come back here too; a
-                            // reload is idempotent, so that is merely cheap.
-                            // Converge regardless: `Interfaces\<ifid> Enabled`
-                            // is read during the pass, not held in Config.
-                            let fresh = config::load();
-                            if fresh != netd.config {
-                                log::info(format_args!("configuration changed"));
-                                netd.control =
-                                    control::ControlObject::new(fresh.control_security.as_deref());
-                                if fresh.rules != netd.config.rules
-                                    || fresh.profiles != netd.config.profiles
-                                {
-                                    netd.take_generation(&fresh);
-                                }
-                                netd.config = fresh;
-                            }
-                            converge = true;
+        if let Some(slot) = watch_slot
+            && fds[slot].revents != 0
+            && let Some(w) = &watch
+        {
+            match w.read_watch_events(&mut watch_buffer) {
+                Ok(events) if !events.is_empty() => {
+                    // Our own inventory writes come back here too; a
+                    // reload is idempotent, so that is merely cheap.
+                    // Converge regardless: `Interfaces\<ifid> Enabled`
+                    // is read during the pass, not held in Config.
+                    let fresh = config::load();
+                    if fresh != netd.config {
+                        log::info(format_args!("configuration changed"));
+                        netd.control =
+                            control::ControlObject::new(fresh.control_security.as_deref());
+                        if fresh.rules != netd.config.rules
+                            || fresh.profiles != netd.config.profiles
+                        {
+                            netd.take_generation(&fresh);
                         }
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::warn(format_args!("registry watch: {e}; re-arming"));
-                            watch = config::watch().ok();
-                        }
+                        netd.config = fresh;
                     }
+                    converge = true;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn(format_args!("registry watch: {e}; re-arming"));
+                    watch = config::watch().ok();
                 }
             }
         }
-        if let Some(slot) = absorber_slot {
-            if fds[slot].revents != 0 {
-                if let Some(a) = &absorber {
-                    a.drain();
-                }
-            }
+        if let Some(slot) = absorber_slot
+            && fds[slot].revents != 0
+            && let Some(a) = &absorber
+        {
+            a.drain();
         }
         for (index, slot) in &dhcp_slots {
             if fds[*slot].revents == 0 {

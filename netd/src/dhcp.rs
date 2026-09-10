@@ -61,7 +61,11 @@ impl PacketSocket {
         if rc < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(PacketSocket { fd, ifindex, ifname: ifname.to_owned() })
+        Ok(PacketSocket {
+            fd,
+            ifindex,
+            ifname: ifname.to_owned(),
+        })
     }
 
     pub fn fd(&self) -> BorrowedFd<'_> {
@@ -73,12 +77,20 @@ impl PacketSocket {
         let payload = message.encode();
         match destination {
             Destination::Broadcast => self.send_broadcast(&payload),
-            Destination::Unicast { server, from } => send_unicast(&self.ifname, from, server, &payload),
+            Destination::Unicast { server, from } => {
+                send_unicast(&self.ifname, from, server, &payload)
+            }
         }
     }
 
     fn send_broadcast(&self, payload: &[u8]) -> io::Result<()> {
-        let datagram = ip_udp(Ipv4Addr::UNSPECIFIED, Ipv4Addr::BROADCAST, CLIENT_PORT, SERVER_PORT, payload);
+        let datagram = ip_udp(
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::BROADCAST,
+            CLIENT_PORT,
+            SERVER_PORT,
+            payload,
+        );
         // SAFETY: zeroed sockaddr_ll is a valid starting point.
         let mut addr: libc::sockaddr_ll = unsafe { zeroed() };
         addr.sll_family = libc::AF_PACKET as u16;
@@ -109,7 +121,8 @@ impl PacketSocket {
         let mut buf = [0u8; 4096];
         loop {
             // SAFETY: `buf` is a live writable buffer of the stated length.
-            let n = unsafe { libc::recv(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+            let n =
+                unsafe { libc::recv(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
             if n < 0 {
                 let e = io::Error::last_os_error();
                 if e.kind() == io::ErrorKind::Interrupted {
@@ -120,10 +133,10 @@ impl PacketSocket {
             if n == 0 {
                 break;
             }
-            if let Some(payload) = udp_payload(&buf[..n as usize]) {
-                if let Some(m) = Message::decode(payload) {
-                    out.push(m);
-                }
+            if let Some(payload) = udp_payload(&buf[..n as usize])
+                && let Some(m) = Message::decode(payload)
+            {
+                out.push(m);
             }
         }
         out
@@ -158,7 +171,10 @@ fn attach_filter(fd: BorrowedFd<'_>) -> io::Result<()> {
         op(0x06, 0, 0, 0xffff), // ret #65535
         op(0x06, 0, 0, 0),      // ret #0
     ];
-    let fprog = SockFprog { len: program.len() as u16, filter: program.as_ptr() };
+    let fprog = SockFprog {
+        len: program.len() as u16,
+        filter: program.as_ptr(),
+    };
     // SAFETY: `fprog` and `program` outlive the call; SO_ATTACH_FILTER copies.
     let rc = unsafe {
         libc::setsockopt(
@@ -178,7 +194,11 @@ fn attach_filter(fd: BorrowedFd<'_>) -> io::Result<()> {
 fn checksum(bytes: &[u8]) -> u16 {
     let mut sum: u32 = 0;
     for chunk in bytes.chunks(2) {
-        let word = if chunk.len() == 2 { u16::from_be_bytes([chunk[0], chunk[1]]) } else { u16::from_be_bytes([chunk[0], 0]) };
+        let word = if chunk.len() == 2 {
+            u16::from_be_bytes([chunk[0], chunk[1]])
+        } else {
+            u16::from_be_bytes([chunk[0], 0])
+        };
         sum += u32::from(word);
     }
     while sum >> 16 != 0 {
@@ -275,7 +295,9 @@ fn bind_udp(socket: &std::net::UdpSocket, addr: std::net::SocketAddrV4) -> io::R
     let mut sin: libc::sockaddr_in = unsafe { zeroed() };
     sin.sin_family = libc::AF_INET as libc::sa_family_t;
     sin.sin_port = addr.port().to_be();
-    sin.sin_addr = libc::in_addr { s_addr: u32::from(*addr.ip()).to_be() };
+    sin.sin_addr = libc::in_addr {
+        s_addr: u32::from(*addr.ip()).to_be(),
+    };
     // SAFETY: `sin` is fully initialised for the stated length.
     let rc = unsafe {
         libc::bind(
@@ -299,7 +321,11 @@ impl Absorber {
     pub fn open() -> io::Result<Absorber> {
         // SAFETY: plain socket creation.
         let raw = unsafe {
-            libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK, 0)
+            libc::socket(
+                libc::AF_INET,
+                libc::SOCK_DGRAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+                0,
+            )
         };
         if raw < 0 {
             return Err(io::Error::last_os_error());
@@ -317,7 +343,10 @@ impl Absorber {
                 size_of::<libc::c_int>() as libc::socklen_t,
             );
         }
-        bind_udp(&socket, std::net::SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, CLIENT_PORT))?;
+        bind_udp(
+            &socket,
+            std::net::SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, CLIENT_PORT),
+        )?;
         Ok(Absorber(socket))
     }
 
@@ -338,15 +367,19 @@ impl Absorber {
 /// same slot keeps the same identity at the server.
 pub fn duid(first_mac: &[u8; 6]) -> Vec<u8> {
     let path = PathBuf::from(NETD_STATE_DIR).join("duid");
-    if let Ok(bytes) = std::fs::read(&path) {
-        if bytes.len() >= 4 {
-            return bytes;
-        }
+    if let Ok(bytes) = std::fs::read(&path)
+        && bytes.len() >= 4
+    {
+        return bytes;
     }
     let mut d = vec![0, 3, 0, 1]; // DUID-LL, hardware type ethernet
     d.extend_from_slice(first_mac);
-    if let Err(e) = std::fs::create_dir_all(NETD_STATE_DIR).and_then(|_| std::fs::write(&path, &d)) {
-        log::warn(format_args!("could not persist the DUID at {}: {e}", path.display()));
+    if let Err(e) = std::fs::create_dir_all(NETD_STATE_DIR).and_then(|_| std::fs::write(&path, &d))
+    {
+        log::warn(format_args!(
+            "could not persist the DUID at {}: {e}",
+            path.display()
+        ));
     }
     d
 }
@@ -372,7 +405,13 @@ mod tests {
         let d = ip_udp(Ipv4Addr::UNSPECIFIED, Ipv4Addr::BROADCAST, 68, 67, b"hello");
         assert_eq!(checksum(&d[..20]), 0);
         // A reply to port 68 parses; our own to 67 does not.
-        let mut reply = ip_udp(Ipv4Addr::new(10, 0, 2, 2), Ipv4Addr::BROADCAST, 67, 68, b"hello");
+        let mut reply = ip_udp(
+            Ipv4Addr::new(10, 0, 2, 2),
+            Ipv4Addr::BROADCAST,
+            67,
+            68,
+            b"hello",
+        );
         assert_eq!(udp_payload(&reply), Some(&b"hello"[..]));
         assert_eq!(udp_payload(&d), None);
         reply.truncate(25);

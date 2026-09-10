@@ -33,9 +33,9 @@ dependencies = [
 
 [[package]]
 name = "bitflags"
-version = "2.13.1"
+version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
 name = "block-buffer"
@@ -99,11 +99,11 @@ dependencies = [
 
 [[package]]
 name = "dhcp4"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "dhcp6"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "digest"
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "libnetd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "peios",
 ]
@@ -189,14 +189,14 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "ndp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "sha1",
 ]
 
 [[package]]
 name = "net"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libnetd",
  "peios",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "netd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dhcp4",
  "dhcp6",
@@ -262,6 +262,7 @@ dependencies = [
 [[package]]
 name = "peios"
 version = "0.4.0"
+source = "git+https://github.com/peios/peios-rs.git?rev=f4309f78fbaa878a14429a5e07d778dba9ddfab7#f4309f78fbaa878a14429a5e07d778dba9ddfab7"
 dependencies = [
  "bitflags",
  "libc",
@@ -271,6 +272,7 @@ dependencies = [
 [[package]]
 name = "peios-sys"
 version = "0.3.0"
+source = "git+https://github.com/peios/peios-rs.git?rev=f4309f78fbaa878a14429a5e07d778dba9ddfab7#f4309f78fbaa878a14429a5e07d778dba9ddfab7"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -285,6 +287,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pnp-core"
 version = "0.1.0"
+source = "git+https://github.com/peios/pkm.git?rev=9c1d56c7ddf1d75356173815f973bf3b6329e00f#9c1d56c7ddf1d75356173815f973bf3b6329e00f"
 
 [[package]]
 name = "prettyplease"
@@ -403,18 +406,18 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.56"
+version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
+checksum = "d35102a9f36d089ccae9e4c6802bc118be4487b80aaffc0ab4e0cf5ce92d2873"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.56"
+version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
+checksum = "146c01f5ab44258da43cf276c74a2763db2ff3969c9c652c3f2de07041d0b2bc"
 dependencies = [
  "proc-macro2",
  "quote",

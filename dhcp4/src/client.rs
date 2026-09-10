@@ -21,7 +21,7 @@
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
-use crate::packet::{option, Lease, Message, MessageType};
+use crate::packet::{Lease, Message, MessageType, option};
 
 /// Where to send a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +36,10 @@ pub enum Destination {
 /// What the caller must do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    Send { message: Message, destination: Destination },
+    Send {
+        message: Message,
+        destination: Destination,
+    },
     /// A lease was obtained or renewed; configure the interface.
     Bound(Lease),
     /// Discovery has gone unanswered for a while. Emitted once per Init
@@ -173,12 +176,17 @@ impl Client {
         {
             let mut m = self.base_message(now);
             m.ciaddr = lease.address;
-            m.options.push(option::MESSAGE_TYPE, [MessageType::Release as u8]);
+            m.options
+                .push(option::MESSAGE_TYPE, [MessageType::Release as u8]);
             m.options.push(option::SERVER_ID, lease.server.octets());
-            m.options.push(option::CLIENT_ID, self.config.client_id.clone());
+            m.options
+                .push(option::CLIENT_ID, self.config.client_id.clone());
             actions.push(Action::Send {
                 message: m,
-                destination: Destination::Unicast { server: lease.server, from: lease.address },
+                destination: Destination::Unicast {
+                    server: lease.server,
+                    from: lease.address,
+                },
             });
         }
         self.state = State::Init;
@@ -237,10 +245,10 @@ impl Client {
                 _ => {}
             }
         }
-        if let Some(at) = self.retransmit_at {
-            if now >= at {
-                actions.extend(self.retransmit(now));
-            }
+        if let Some(at) = self.retransmit_at
+            && now >= at
+        {
+            actions.extend(self.retransmit(now));
         }
         actions
     }
@@ -250,19 +258,21 @@ impl Client {
         if !message.is_reply || message.xid != self.xid || message.chaddr != self.config.chaddr {
             return Vec::new();
         }
-        let Some(kind) = message.message_type() else { return Vec::new() };
+        let Some(kind) = message.message_type() else {
+            return Vec::new();
+        };
         // Once a server has been chosen, an ACK or NAK must come from it.
         // A stranger who guessed the xid still cannot take the lease away.
         if matches!(kind, MessageType::Ack | MessageType::Nak) {
-            let chosen = self
-                .lease
-                .as_ref()
-                .map(|l| l.server)
-                .or_else(|| self.offer.as_ref().and_then(|o| o.options.ipv4(option::SERVER_ID)));
-            if let Some(chosen) = chosen {
-                if message.options.ipv4(option::SERVER_ID) != Some(chosen) {
-                    return Vec::new();
-                }
+            let chosen = self.lease.as_ref().map(|l| l.server).or_else(|| {
+                self.offer
+                    .as_ref()
+                    .and_then(|o| o.options.ipv4(option::SERVER_ID))
+            });
+            if let Some(chosen) = chosen
+                && message.options.ipv4(option::SERVER_ID) != Some(chosen)
+            {
+                return Vec::new();
             }
         }
         match (&self.state, kind) {
@@ -275,19 +285,20 @@ impl Client {
                 self.offer = Some(message.clone());
                 self.enter_requesting(now)
             }
-            (State::Requesting | State::Rebooting | State::Renewing | State::Rebinding, MessageType::Ack) => {
-                match Lease::from_ack(message) {
-                    Some(lease) => {
-                        self.state = State::Bound;
-                        self.retransmit_at = None;
-                        self.bound_at = Some(now);
-                        self.lease = Some(lease.clone());
-                        self.reboot_address = Some(lease.address);
-                        vec![Action::Bound(lease)]
-                    }
-                    None => Vec::new(),
+            (
+                State::Requesting | State::Rebooting | State::Renewing | State::Rebinding,
+                MessageType::Ack,
+            ) => match Lease::from_ack(message) {
+                Some(lease) => {
+                    self.state = State::Bound;
+                    self.retransmit_at = None;
+                    self.bound_at = Some(now);
+                    self.lease = Some(lease.clone());
+                    self.reboot_address = Some(lease.address);
+                    vec![Action::Bound(lease)]
                 }
-            }
+                None => Vec::new(),
+            },
             (State::Requesting | State::Rebooting, MessageType::Nak) => {
                 self.reboot_address = None;
                 self.offer = None;
@@ -385,7 +396,10 @@ impl Client {
 
     fn base_message(&self, now: Instant) -> Message {
         let mut m = Message::request(self.xid, self.config.chaddr);
-        m.secs = now.saturating_duration_since(self.started).as_secs().min(65535) as u16;
+        m.secs = now
+            .saturating_duration_since(self.started)
+            .as_secs()
+            .min(65535) as u16;
         m
     }
 
@@ -409,9 +423,14 @@ impl Client {
 
     fn common_options(&self, m: &mut Message, kind: MessageType) {
         m.options.push(option::MESSAGE_TYPE, [kind as u8]);
-        m.options.push(option::CLIENT_ID, self.config.client_id.clone());
-        m.options.push(option::MAX_MESSAGE_SIZE, 1500u16.to_be_bytes());
-        m.options.push(option::PARAMETER_REQUEST_LIST, Self::parameter_request_list());
+        m.options
+            .push(option::CLIENT_ID, self.config.client_id.clone());
+        m.options
+            .push(option::MAX_MESSAGE_SIZE, 1500u16.to_be_bytes());
+        m.options.push(
+            option::PARAMETER_REQUEST_LIST,
+            Self::parameter_request_list(),
+        );
         if let Some(h) = &self.config.hostname {
             m.options.push(option::HOSTNAME, h.as_bytes().to_vec());
         }
@@ -432,11 +451,16 @@ impl Client {
             m.options.push(option::REQUESTED_IP, a.octets());
         }
         self.schedule_backoff(now);
-        vec![Action::Send { message: m, destination: Destination::Broadcast }]
+        vec![Action::Send {
+            message: m,
+            destination: Destination::Broadcast,
+        }]
     }
 
     fn send_request_for_offer(&mut self, now: Instant) -> Vec<Action> {
-        let Some(offer) = self.offer.clone() else { return self.enter_selecting(now) };
+        let Some(offer) = self.offer.clone() else {
+            return self.enter_selecting(now);
+        };
         let mut m = self.base_message(now);
         m.broadcast = true;
         self.common_options(&mut m, MessageType::Request);
@@ -445,27 +469,42 @@ impl Client {
             m.options.push(option::SERVER_ID, server.to_vec());
         }
         self.schedule_backoff(now);
-        vec![Action::Send { message: m, destination: Destination::Broadcast }]
+        vec![Action::Send {
+            message: m,
+            destination: Destination::Broadcast,
+        }]
     }
 
     fn send_reboot_request(&mut self, now: Instant) -> Vec<Action> {
-        let Some(address) = self.reboot_address else { return self.enter_selecting(now) };
+        let Some(address) = self.reboot_address else {
+            return self.enter_selecting(now);
+        };
         let mut m = self.base_message(now);
         m.broadcast = true;
         self.common_options(&mut m, MessageType::Request);
         m.options.push(option::REQUESTED_IP, address.octets());
         self.schedule_backoff(now);
-        vec![Action::Send { message: m, destination: Destination::Broadcast }]
+        vec![Action::Send {
+            message: m,
+            destination: Destination::Broadcast,
+        }]
     }
 
     fn send_renewal(&mut self, now: Instant) -> Vec<Action> {
-        let Some(lease) = self.lease.clone() else { return Vec::new() };
-        let Some(bound_at) = self.bound_at else { return Vec::new() };
+        let Some(lease) = self.lease.clone() else {
+            return Vec::new();
+        };
+        let Some(bound_at) = self.bound_at else {
+            return Vec::new();
+        };
         let mut m = self.base_message(now);
         m.ciaddr = lease.address;
         self.common_options(&mut m, MessageType::Request);
         let destination = match self.state {
-            State::Renewing => Destination::Unicast { server: lease.server, from: lease.address },
+            State::Renewing => Destination::Unicast {
+                server: lease.server,
+                from: lease.address,
+            },
             _ => Destination::Broadcast,
         };
         // §4.4.5: retransmit at half the remaining time to the next boundary,
@@ -477,7 +516,10 @@ impl Client {
         let remaining =
             (bound_at + Duration::from_secs(u64::from(boundary))).saturating_duration_since(now);
         self.retransmit_at = Some(now + (remaining / 2).max(MIN_RETRANSMIT));
-        vec![Action::Send { message: m, destination }]
+        vec![Action::Send {
+            message: m,
+            destination,
+        }]
     }
 
     fn next_random(&mut self) -> u32 {
@@ -501,7 +543,9 @@ mod tests {
     fn client() -> Client {
         Client::new(Config {
             chaddr: MAC,
-            client_id: vec![0xff, 0, 0, 0, 1, 0, 3, 0, 1, 0x52, 0x54, 0, 0x12, 0x34, 0x56],
+            client_id: vec![
+                0xff, 0, 0, 0, 1, 0, 3, 0, 1, 0x52, 0x54, 0, 0x12, 0x34, 0x56,
+            ],
             hostname: Some("box".into()),
             seed: 42,
         })
@@ -511,7 +555,10 @@ mod tests {
         actions
             .iter()
             .filter_map(|a| match a {
-                Action::Send { message, destination } => Some((message, *destination)),
+                Action::Send {
+                    message,
+                    destination,
+                } => Some((message, *destination)),
                 _ => None,
             })
             .collect()
@@ -522,7 +569,8 @@ mod tests {
         m.is_reply = true;
         m.yiaddr = address;
         m.options.push(option::MESSAGE_TYPE, [kind as u8]);
-        m.options.push(option::SERVER_ID, Ipv4Addr::new(10, 0, 2, 2).octets());
+        m.options
+            .push(option::SERVER_ID, Ipv4Addr::new(10, 0, 2, 2).octets());
         m.options.push(option::LEASE_TIME, lease_time.to_be_bytes());
         m.options.push(option::SUBNET_MASK, [255, 255, 255, 0]);
         m.options.push(option::ROUTER, [10, 0, 2, 2]);
@@ -540,11 +588,19 @@ mod tests {
         assert_eq!(s[0].1, Destination::Broadcast);
         assert_eq!(*c.state(), State::Selecting);
 
-        let offer = reply(s[0].0, MessageType::Offer, Ipv4Addr::new(10, 0, 2, 15), 3600);
+        let offer = reply(
+            s[0].0,
+            MessageType::Offer,
+            Ipv4Addr::new(10, 0, 2, 15),
+            3600,
+        );
         let a = c.receive(t0, &offer);
         let s = sent(&a);
         assert_eq!(s[0].0.message_type(), Some(MessageType::Request));
-        assert_eq!(s[0].0.options.ipv4(option::REQUESTED_IP), Some(Ipv4Addr::new(10, 0, 2, 15)));
+        assert_eq!(
+            s[0].0.options.ipv4(option::REQUESTED_IP),
+            Some(Ipv4Addr::new(10, 0, 2, 15))
+        );
         assert_eq!(*c.state(), State::Requesting);
 
         let ack = reply(s[0].0, MessageType::Ack, Ipv4Addr::new(10, 0, 2, 15), 3600);
@@ -561,7 +617,12 @@ mod tests {
         let mut c = client();
         let t0 = Instant::now();
         let a = c.start(t0, None);
-        let mut offer = reply(sent(&a)[0].0, MessageType::Offer, Ipv4Addr::new(10, 0, 2, 15), 3600);
+        let mut offer = reply(
+            sent(&a)[0].0,
+            MessageType::Offer,
+            Ipv4Addr::new(10, 0, 2, 15),
+            3600,
+        );
         offer.xid ^= 1;
         assert!(c.receive(t0, &offer).is_empty());
         assert_eq!(*c.state(), State::Selecting);
@@ -590,9 +651,19 @@ mod tests {
 
     fn bind(c: &mut Client, t0: Instant, lease_time: u32) {
         let a = c.start(t0, None);
-        let offer = reply(sent(&a)[0].0, MessageType::Offer, Ipv4Addr::new(10, 0, 2, 15), lease_time);
+        let offer = reply(
+            sent(&a)[0].0,
+            MessageType::Offer,
+            Ipv4Addr::new(10, 0, 2, 15),
+            lease_time,
+        );
         let a = c.receive(t0, &offer);
-        let ack = reply(sent(&a)[0].0, MessageType::Ack, Ipv4Addr::new(10, 0, 2, 15), lease_time);
+        let ack = reply(
+            sent(&a)[0].0,
+            MessageType::Ack,
+            Ipv4Addr::new(10, 0, 2, 15),
+            lease_time,
+        );
         c.receive(t0, &ack);
         assert_eq!(*c.state(), State::Bound);
     }
@@ -626,7 +697,12 @@ mod tests {
         bind(&mut c, t0, 1000);
         let t1 = t0 + Duration::from_secs(500);
         let a = c.tick(t1);
-        let ack = reply(sent(&a)[0].0, MessageType::Ack, Ipv4Addr::new(10, 0, 2, 15), 1000);
+        let ack = reply(
+            sent(&a)[0].0,
+            MessageType::Ack,
+            Ipv4Addr::new(10, 0, 2, 15),
+            1000,
+        );
         let a = c.receive(t1, &ack);
         assert!(matches!(a[0], Action::Bound(_)));
         assert_eq!(c.expires_in(t1), Some(1000));
@@ -655,7 +731,10 @@ mod tests {
         assert_eq!(*c.state(), State::Rebooting);
         assert_eq!(s[0].0.message_type(), Some(MessageType::Request));
         assert!(s[0].0.options.get(option::SERVER_ID).is_none());
-        assert_eq!(s[0].0.options.ipv4(option::REQUESTED_IP), Some(Ipv4Addr::new(10, 0, 2, 15)));
+        assert_eq!(
+            s[0].0.options.ipv4(option::REQUESTED_IP),
+            Some(Ipv4Addr::new(10, 0, 2, 15))
+        );
         // Confirmed straight to Bound.
         let ack = reply(s[0].0, MessageType::Ack, Ipv4Addr::new(10, 0, 2, 15), 600);
         let a = c.receive(t0, &ack);

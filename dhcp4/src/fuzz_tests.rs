@@ -26,7 +26,10 @@ impl Rng {
 }
 
 fn iters() -> usize {
-    std::env::var("DHCP_FUZZ_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000)
+    std::env::var("DHCP_FUZZ_ITERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000)
 }
 
 /// A plausible server reply: mostly well-formed, with option contents
@@ -37,13 +40,16 @@ fn random_reply(rng: &mut Rng) -> Message {
     m.yiaddr = Ipv4Addr::from(rng.next() as u32);
     let kinds = [MessageType::Offer, MessageType::Ack, MessageType::Nak];
     if rng.below(10) != 0 {
-        m.options.push(option::MESSAGE_TYPE, [kinds[rng.below(3)] as u8]);
+        m.options
+            .push(option::MESSAGE_TYPE, [kinds[rng.below(3)] as u8]);
     }
     if rng.below(10) != 0 {
-        m.options.push(option::SERVER_ID, (rng.next() as u32).to_be_bytes());
+        m.options
+            .push(option::SERVER_ID, (rng.next() as u32).to_be_bytes());
     }
     if rng.below(10) != 0 {
-        m.options.push(option::LEASE_TIME, (rng.next() as u32).to_be_bytes());
+        m.options
+            .push(option::LEASE_TIME, (rng.next() as u32).to_be_bytes());
     }
     for _ in 0..rng.below(8) {
         let code = match rng.below(10) {
@@ -75,7 +81,8 @@ fn fuzz_decode_and_lease_never_panic() {
         // An option longer than 255 cannot be encoded faithfully; skip the
         // equality check for those but still decode.
         let faithful = m.options.0.iter().all(|(_, d)| d.len() <= 255);
-        let back = Message::decode(&bytes).unwrap_or_else(|| panic!("iteration {i}: our own encoding does not decode"));
+        let back = Message::decode(&bytes)
+            .unwrap_or_else(|| panic!("iteration {i}: our own encoding does not decode"));
         if faithful {
             assert_eq!(back.xid, m.xid);
             assert_eq!(back.yiaddr, m.yiaddr);
@@ -107,7 +114,10 @@ fn a_lease_never_has_an_impossible_shape() {
         if let Some(l) = Lease::from_ack(&m) {
             assert!(l.prefix <= 32);
             assert!(l.lease_time > 0);
-            assert!(l.t1 < l.lease_time && l.t2 > l.t1 && l.t2 < l.lease_time, "{l:?}");
+            assert!(
+                l.t1 < l.lease_time && l.t2 > l.t1 && l.t2 < l.lease_time,
+                "{l:?}"
+            );
             for r in &l.static_routes {
                 assert!(r.prefix <= 32);
             }

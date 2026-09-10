@@ -3,6 +3,7 @@ name = "netd"
 description = "The Peios network manager: links, addresses, routes, DHCP, inventory."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
@@ -25,6 +26,8 @@ netlink-sys = "0.9"
 sha1 = "0.10"
 # The interface layer is a PNP rules forest; netd builds and judges it with
 # the kernel's own rules engine so the two cannot disagree about a rule.
-pnp-core = { path = "../../pkm/crates/pnp-core" }
-ndp = { version = "0.1.0", path = "../ndp" }
-dhcp6 = { version = "0.1.0", path = "../dhcp6" }
+# Pin the exact rules engine revision netd was validated against. The package
+# build vendors this source, so a build never consults a sibling PKM checkout.
+pnp-core = { git = "https://github.com/peios/pkm.git", rev = "9c1d56c7ddf1d75356173815f973bf3b6329e00f" }
+ndp = { version = "0.1.1", path = "../ndp" }
+dhcp6 = { version = "0.1.1", path = "../dhcp6" }

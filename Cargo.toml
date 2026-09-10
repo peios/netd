@@ -18,11 +18,20 @@ members = ["libnetd", "dhcp4", "dhcp6", "ndp", "netd", "net"]
 #            reads the registry; owns nothing.
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+rust-version = "1.98.1"
 license = "MIT"
 publish = false
 
 [workspace.dependencies]
 libc = "0.2"
-peios = { path = "../peios-rs/peios" }
+peios = { git = "https://github.com/peios/peios-rs.git", rev = "f4309f78fbaa878a14429a5e07d778dba9ddfab7", package = "peios" }
+
+[profile.release]
+debug = 2
+split-debuginfo = "off"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "none"

@@ -1,0 +1,11 @@
+[package]
+name        = "dev.peios.netd-debuginfo"
+description = "Debugging symbols for the Peios network service"
+
+[dependencies]
+"dev.peios.netd" = "= {{version}}-15"
+
+[files]
+"@source:LICENSE"               = "usr/share/licenses/dev.peios.netd-debuginfo/LICENSE"
+":licenses/**"                  = "usr/share/licenses/dev.peios.netd-debuginfo/third-party"
+":debug/netd/usr/lib/debug/**"  = "usr/lib/debug"

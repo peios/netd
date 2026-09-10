@@ -1,4 +1,7 @@
-# Base metadata for the packages carved from the netd build tree.
+# Base metadata for the qualified production packages carved from the netd
+# build tree. Revision 15 follows fourteen unqualified development snapshots
+# and introduces the immutable Cargo graph, exact source/debug artifacts,
+# deterministic builds, manuals, and fail-closed production gates.
 #
 #   netd  the network manager. Runs as SYSTEM; owns links, addresses,
 #         routes and DHCP.
@@ -11,6 +14,8 @@
 format = "peipkg"
 
 [package]
-version      = "{{version}}-14"
+version      = "{{version}}-15"
 architecture = "x86_64"
-license      = "MIT"
+license      = "MIT AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND Unicode-3.0 AND Unlicense"
+license_class = "free"
+homepage      = "https://github.com/peios/netd"

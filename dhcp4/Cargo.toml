@@ -3,6 +3,7 @@ name = "dhcp4"
 description = "A DHCPv4 client codec and state machine (RFC 2131), free of I/O."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
