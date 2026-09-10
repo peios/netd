@@ -13,9 +13,14 @@ use peios::registry::{Key, KeyAccess, OpenFlags, ValueType};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: net status\n       net renew <interface>\n       net reconcile\n       net rules\n       net profiles\n       net wait <link|addressed|routed> [timeout-seconds]"
+        "usage: net status\n       net renew <interface>\n       net reconcile\n       net rules\n       net profiles\n       net wait <link|addressed|routed> [timeout-seconds]\n       net version"
     );
     ExitCode::from(2)
+}
+
+fn version() -> ExitCode {
+    println!("net {}", env!("CARGO_PKG_VERSION"));
+    ExitCode::SUCCESS
 }
 
 fn call(request: &Request) -> Result<Reply, String> {
@@ -57,7 +62,11 @@ fn print_status(s: &Status) {
         println!(
             "  state      {}{}",
             if i.up { "up" } else { "down" },
-            if i.carrier { ", carrier" } else { ", no-carrier" },
+            if i.carrier {
+                ", carrier"
+            } else {
+                ", no-carrier"
+            },
         );
         if i.verdict.as_deref() == Some("JOIN") {
             println!("  readiness  {}", i.level.as_str());
@@ -181,7 +190,9 @@ fn rules() -> ExitCode {
             let mut names: Vec<String> = values
                 .iter()
                 .filter_map(|v| String::from_utf8(v.name.clone()).ok())
-                .filter(|n| !matches!(n.as_str(), "Actions" | "Priority" | "Enabled") && !n.is_empty())
+                .filter(|n| {
+                    !matches!(n.as_str(), "Actions" | "Priority" | "Enabled") && !n.is_empty()
+                })
                 .collect();
             names.sort();
             for n in names {
@@ -199,7 +210,9 @@ fn rules() -> ExitCode {
         println!(
             "{:indent$}{path}{}{}  {}  -> {}",
             "",
-            dword(key, "Priority").map(|p| format!(" [{p}]")).unwrap_or_default(),
+            dword(key, "Priority")
+                .map(|p| format!(" [{p}]"))
+                .unwrap_or_default(),
             if disabled { " (disabled)" } else { "" },
             if conditions.is_empty() {
                 "(everything)".to_owned()
@@ -236,7 +249,9 @@ fn profiles() -> ExitCode {
             for n in names {
                 let v = multi(key, &n);
                 let v = if v.is_empty() {
-                    dword(key, &n).map(|d| d.to_string()).unwrap_or_else(|| "(none)".into())
+                    dword(key, &n)
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "(none)".into())
                 } else {
                     v.join(",")
                 };
@@ -279,6 +294,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
+        ["version"] | ["--version"] => version(),
         ["status"] => match status() {
             Ok(s) => {
                 print_status(&s);

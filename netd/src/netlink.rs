@@ -15,8 +15,8 @@ use netlink_packet_core::{
     NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::address::{
-    AddressAttribute, AddressFlags, AddressHeader, AddressHeaderFlags, AddressMessage, AddressScope,
-    CacheInfo,
+    AddressAttribute, AddressFlags, AddressHeader, AddressHeaderFlags, AddressMessage,
+    AddressScope, CacheInfo,
 };
 use netlink_packet_route::link::{
     LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage,
@@ -185,10 +185,10 @@ impl LinuxRtnl {
             NLM_F_REQUEST | NLM_F_DUMP,
         )?;
         self.receive(sequence, |m| {
-            if let RouteNetlinkMessage::NewAddress(a) = m {
-                if let Some(address) = address_from_message(&a) {
-                    out.addresses.push(address);
-                }
+            if let RouteNetlinkMessage::NewAddress(a) = m
+                && let Some(address) = address_from_message(&a)
+            {
+                out.addresses.push(address);
             }
         })
     }
@@ -198,10 +198,10 @@ impl LinuxRtnl {
         m.header.address_family = family;
         let sequence = self.send(RouteNetlinkMessage::GetRoute(m), NLM_F_REQUEST | NLM_F_DUMP)?;
         self.receive(sequence, |m| {
-            if let RouteNetlinkMessage::NewRoute(r) = m {
-                if let Some(route) = route_from_message(&r) {
-                    out.routes.push(route);
-                }
+            if let RouteNetlinkMessage::NewRoute(r) = m
+                && let Some(route) = route_from_message(&r)
+            {
+                out.routes.push(route);
             }
         })
     }

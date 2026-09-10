@@ -1,0 +1,11 @@
+[package]
+name        = "dev.peios.net-debuginfo"
+description = "Debugging symbols for the Peios network operator command"
+
+[dependencies]
+"dev.peios.net" = "= {{version}}-15"
+
+[files]
+"@source:LICENSE"              = "usr/share/licenses/dev.peios.net-debuginfo/LICENSE"
+":licenses/**"                 = "usr/share/licenses/dev.peios.net-debuginfo/third-party"
+":debug/net/usr/lib/debug/**"  = "usr/lib/debug"

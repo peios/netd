@@ -153,7 +153,7 @@ fn prefix_info(option: &[u8]) -> Option<PrefixInfo> {
 }
 
 fn rdnss(option: &[u8]) -> Option<Rdnss> {
-    if option.len() < 24 || (option.len() - 8) % 16 != 0 {
+    if option.len() < 24 || !(option.len() - 8).is_multiple_of(16) {
         return None;
     }
     let lifetime = u32::from_be_bytes([option[4], option[5], option[6], option[7]]);

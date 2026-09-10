@@ -63,9 +63,9 @@ fn sz(v: &RegValue) -> Option<String> {
 
 fn lower_value(ty: ValueType, data: &[u8]) -> RawValue {
     match ty {
-        ValueType::DWORD if data.len() == 4 => {
-            RawValue::Int(i64::from(u32::from_le_bytes([data[0], data[1], data[2], data[3]])))
-        }
+        ValueType::DWORD if data.len() == 4 => RawValue::Int(i64::from(u32::from_le_bytes([
+            data[0], data[1], data[2], data[3],
+        ]))),
         ValueType::QWORD if data.len() == 8 => {
             let mut b = [0u8; 8];
             b.copy_from_slice(data);
@@ -133,7 +133,9 @@ fn read_tree(key: &Key, name: &str, depth: usize) -> RawKey {
     // A stable order makes two reads of the same tree compare equal.
     out.values.sort_by(|a, b| a.0.cmp(&b.0));
     if depth >= MAX_DEPTH {
-        log::warn(format_args!("{name}: tree deeper than {MAX_DEPTH}; the rest is ignored"));
+        log::warn(format_args!(
+            "{name}: tree deeper than {MAX_DEPTH}; the rest is ignored"
+        ));
         return out;
     }
     let mut names: Vec<String> = key
@@ -154,10 +156,12 @@ fn read_tree(key: &Key, name: &str, depth: usize) -> RawKey {
 /// `ClientId`.
 pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
     let digits: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if digits.is_empty() || digits.len() % 2 != 0 {
+    if digits.is_empty() || !digits.len().is_multiple_of(2) {
         return None;
     }
-    if s.chars().any(|c| !(c.is_ascii_hexdigit() || c == ':' || c == '-' || c.is_ascii_whitespace())) {
+    if s.chars()
+        .any(|c| !(c.is_ascii_hexdigit() || c == ':' || c == '-' || c.is_ascii_whitespace()))
+    {
         return None;
     }
     (0..digits.len())
@@ -196,10 +200,10 @@ pub fn load() -> Config {
         }
         parsed
     });
-    if let Some(rules) = open(Some(&root), "Rules") {
-        if let Some(layer) = open(Some(&rules), "Interface") {
-            config.rules = Some(read_tree(&layer, "Interface", 0));
-        }
+    if let Some(rules) = open(Some(&root), "Rules")
+        && let Some(layer) = open(Some(&rules), "Interface")
+    {
+        config.rules = Some(read_tree(&layer, "Interface", 0));
     }
     if let Some(profiles) = open(Some(&root), "Profiles") {
         config.profiles = Some(read_tree(&profiles, "Profiles", 0));
@@ -224,7 +228,10 @@ mod tests {
     fn hex_identifiers_round_trip() {
         let id = vec![0, 3, 0, 1, 0x52, 0x54, 0, 1, 2, 3];
         assert_eq!(parse_hex(&format_hex(&id)).as_deref(), Some(&id[..]));
-        assert_eq!(parse_hex("0003000152540001"), Some(vec![0, 3, 0, 1, 0x52, 0x54, 0, 1]));
+        assert_eq!(
+            parse_hex("0003000152540001"),
+            Some(vec![0, 3, 0, 1, 0x52, 0x54, 0, 1])
+        );
         assert_eq!(parse_hex("00:0g"), None);
         assert_eq!(parse_hex("abc"), None);
         assert_eq!(parse_hex(""), None);
@@ -232,8 +239,14 @@ mod tests {
 
     #[test]
     fn values_lower_to_their_neutral_shape() {
-        assert_eq!(lower_value(ValueType::DWORD, &7u32.to_le_bytes()), RawValue::Int(7));
-        assert_eq!(lower_value(ValueType::SZ, b"wired\0"), RawValue::Str("wired".into()));
+        assert_eq!(
+            lower_value(ValueType::DWORD, &7u32.to_le_bytes()),
+            RawValue::Int(7)
+        );
+        assert_eq!(
+            lower_value(ValueType::SZ, b"wired\0"),
+            RawValue::Str("wired".into())
+        );
         assert_eq!(
             lower_value(ValueType::MULTI_SZ, b"a\0b\0\0"),
             RawValue::List(vec!["a".into(), "b".into()])

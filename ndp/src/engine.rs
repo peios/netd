@@ -214,10 +214,8 @@ impl Engine {
                 // §5.5.3(e): an unauthenticated RA may extend the valid
                 // lifetime freely but may not cut what remains below two
                 // hours — else one spoofed packet invalidates the address.
-                let remaining = match p.valid_until {
-                    None => None, // forever stays forever unless the new value is also long
-                    Some(t) => Some(t.saturating_duration_since(now)),
-                };
+                // Forever stays forever unless the new value is also long.
+                let remaining = p.valid_until.map(|t| t.saturating_duration_since(now));
                 let received = Duration::from_secs(u64::from(info.valid));
                 p.valid_until = match (until(now, info.valid), remaining) {
                     (new, Some(rem)) if received > TWO_HOURS || received > rem => new,
@@ -250,15 +248,15 @@ impl Engine {
     pub fn tick(&mut self, now: Instant) -> Vec<Action> {
         self.expire(now);
         let mut actions = Vec::new();
-        if let Some(at) = self.solicit_at {
-            if now >= at {
-                self.solicits += 1;
-                if self.solicits >= SOLICITS_BEFORE_BACKOFF {
-                    self.solicit_interval = (self.solicit_interval * 2).min(MAX_SOLICIT_INTERVAL);
-                }
-                self.solicit_at = Some(now + self.jitter(self.solicit_interval));
-                actions.push(Action::Solicit(packet::solicit(self.config.mac.as_ref())));
+        if let Some(at) = self.solicit_at
+            && now >= at
+        {
+            self.solicits += 1;
+            if self.solicits >= SOLICITS_BEFORE_BACKOFF {
+                self.solicit_interval = (self.solicit_interval * 2).min(MAX_SOLICIT_INTERVAL);
             }
+            self.solicit_at = Some(now + self.jitter(self.solicit_interval));
+            actions.push(Action::Solicit(packet::solicit(self.config.mac.as_ref())));
         }
         self.emit_if_changed(now, actions)
     }

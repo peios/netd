@@ -3,6 +3,7 @@ name = "ndp"
 description = "IPv6 neighbour discovery for a host: RA parsing, SLAAC with stable-privacy addresses, free of I/O."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 

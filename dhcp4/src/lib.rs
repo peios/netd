@@ -17,6 +17,6 @@ pub use client::{Action, Client, Config, Destination, State};
 pub use packet::{Lease, Message, MessageType, Options, StaticRoute};
 
 #[cfg(test)]
-mod fuzz_tests;
-#[cfg(test)]
 mod adversarial_tests;
+#[cfg(test)]
+mod fuzz_tests;

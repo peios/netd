@@ -72,7 +72,10 @@ pub struct Options(pub Vec<(u8, Vec<u8>)>);
 
 impl Options {
     pub fn get(&self, code: u8) -> Option<&[u8]> {
-        self.0.iter().find(|(c, _)| *c == code).map(|(_, v)| v.as_slice())
+        self.0
+            .iter()
+            .find(|(c, _)| *c == code)
+            .map(|(_, v)| v.as_slice())
     }
 
     pub fn push(&mut self, code: u8, data: impl Into<Vec<u8>>) {
@@ -156,7 +159,11 @@ impl Message {
 
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(300);
-        out.push(if self.is_reply { BOOTREPLY } else { BOOTREQUEST });
+        out.push(if self.is_reply {
+            BOOTREPLY
+        } else {
+            BOOTREQUEST
+        });
         out.push(HTYPE_ETHERNET);
         out.push(6);
         out.push(0); // hops
@@ -326,7 +333,9 @@ impl Lease {
             .u32(option::RENEWAL_T1)
             .filter(|t| *t > 0 && *t < lease_time - 2)
             .unwrap_or(lease_time / 2);
-        let t2_default = ((u64::from(lease_time) * 7 / 8) as u32).max(t1 + 1).min(lease_time - 1);
+        let t2_default = ((u64::from(lease_time) * 7 / 8) as u32)
+            .max(t1 + 1)
+            .min(lease_time - 1);
         let t2 = o
             .u32(option::REBINDING_T2)
             .filter(|t| *t > t1 && *t < lease_time)
@@ -338,7 +347,10 @@ impl Lease {
             routers,
             dns: o.ipv4_list(option::DNS),
             domain: o.string(option::DOMAIN_NAME),
-            search: o.get(option::DOMAIN_SEARCH).map(decode_domain_search).unwrap_or_default(),
+            search: o
+                .get(option::DOMAIN_SEARCH)
+                .map(decode_domain_search)
+                .unwrap_or_default(),
             hostname: o.string(option::HOSTNAME),
             mtu: o.u16(option::MTU).filter(|m| *m >= 68),
             broadcast: o.ipv4(option::BROADCAST),
@@ -398,7 +410,9 @@ fn decode_domain_search(v: &[u8]) -> Vec<String> {
                 }
                 continue;
             }
-            let Some(label) = v.get(p + 1..p + 1 + usize::from(len)) else { return out };
+            let Some(label) = v.get(p + 1..p + 1 + usize::from(len)) else {
+                return out;
+            };
             labels.push(String::from_utf8_lossy(label).into_owned());
             p += 1 + usize::from(len);
         }
@@ -420,11 +434,17 @@ mod tests {
         let mut m = Message::request(0x1234, [1, 2, 3, 4, 5, 6]);
         m.is_reply = true;
         m.yiaddr = Ipv4Addr::new(10, 0, 2, 15);
-        m.options.push(option::MESSAGE_TYPE, [MessageType::Ack as u8]);
-        m.options.push(option::SERVER_ID, Ipv4Addr::new(10, 0, 2, 2).octets());
+        m.options
+            .push(option::MESSAGE_TYPE, [MessageType::Ack as u8]);
+        m.options
+            .push(option::SERVER_ID, Ipv4Addr::new(10, 0, 2, 2).octets());
         m.options.push(option::LEASE_TIME, 86400u32.to_be_bytes());
-        m.options.push(option::SUBNET_MASK, Ipv4Addr::new(255, 255, 255, 0).octets());
-        m.options.push(option::ROUTER, Ipv4Addr::new(10, 0, 2, 2).octets());
+        m.options.push(
+            option::SUBNET_MASK,
+            Ipv4Addr::new(255, 255, 255, 0).octets(),
+        );
+        m.options
+            .push(option::ROUTER, Ipv4Addr::new(10, 0, 2, 2).octets());
         m.options.push(option::DNS, {
             let mut v = Ipv4Addr::new(10, 0, 2, 3).octets().to_vec();
             v.extend(Ipv4Addr::new(1, 1, 1, 1).octets());
@@ -484,7 +504,10 @@ mod tests {
             7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 3, b's', b'u',
             b'b', 0xC0, 0,
         ];
-        assert_eq!(decode_domain_search(&v), vec!["example.com", "sub.example.com"]);
+        assert_eq!(
+            decode_domain_search(&v),
+            vec!["example.com", "sub.example.com"]
+        );
     }
 
     #[test]

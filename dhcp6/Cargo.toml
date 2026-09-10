@@ -3,6 +3,7 @@ name = "dhcp6"
 description = "A stateless DHCPv6 client (RFC 8415 information-request), free of I/O."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 

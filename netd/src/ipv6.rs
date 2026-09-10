@@ -259,12 +259,12 @@ fn send_to(fd: &OwnedFd, payload: &[u8], to: Ipv6Addr, port: u16, scope: u32) ->
 /// all.
 pub fn secret() -> [u8; 32] {
     let path = PathBuf::from(NETD_STATE_DIR).join("secret");
-    if let Ok(bytes) = std::fs::read(&path) {
-        if bytes.len() == 32 {
-            let mut s = [0u8; 32];
-            s.copy_from_slice(&bytes);
-            return s;
-        }
+    if let Ok(bytes) = std::fs::read(&path)
+        && bytes.len() == 32
+    {
+        let mut s = [0u8; 32];
+        s.copy_from_slice(&bytes);
+        return s;
     }
     let mut s = [0u8; 32];
     if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
@@ -291,10 +291,11 @@ pub fn kernel_ra_off() {
     write_sysctl("default");
     if let Ok(entries) = std::fs::read_dir("/proc/sys/net/ipv6/conf") {
         for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name != "all" && name != "default" {
-                    write_sysctl(name);
-                }
+            if let Some(name) = entry.file_name().to_str()
+                && name != "all"
+                && name != "default"
+            {
+                write_sysctl(name);
             }
         }
     }

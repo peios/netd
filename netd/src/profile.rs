@@ -316,9 +316,7 @@ fn parse(
                 {
                     "drop" => OnExpiry::Drop,
                     "keep" => OnExpiry::Keep,
-                    other => {
-                        return Err(format!("profile {path}: Address.OnExpiry: {other:?}"))
-                    }
+                    other => return Err(format!("profile {path}: Address.OnExpiry: {other:?}")),
                 }
             }
             "route.offered" => a.route_offered = as_bool(value).ok_or_else(|| bad(name))?,
@@ -378,7 +376,10 @@ mod tests {
     fn key(name: &str, values: &[(&str, RawValue)], children: Vec<RawKey>) -> RawKey {
         RawKey {
             name: name.into(),
-            values: values.iter().map(|(n, v)| ((*n).to_owned(), v.clone())).collect(),
+            values: values
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), v.clone()))
+                .collect(),
             children,
         }
     }
@@ -438,13 +439,21 @@ mod tests {
         let london = &all["office/london"];
         assert!(london.address.dhcp4());
         assert_eq!(london.dns.servers.len(), 1, "list replaced, not appended");
-        assert_eq!(london.dns.domains, vec!["corp.example".to_owned()], "inherited");
+        assert_eq!(
+            london.dns.domains,
+            vec!["corp.example".to_owned()],
+            "inherited"
+        );
         let db1 = &all["office/london/db1"];
         assert!(!db1.address.dhcp4());
         assert_eq!(db1.address.statics.len(), 1);
         assert_eq!(db1.address.gateway, Some(Ipv4Addr::new(10, 1, 0, 1)));
         assert!(db1.dns.servers.is_empty(), "present-but-empty means none");
-        assert_eq!(db1.dns.domains, vec!["corp.example".to_owned()], "still inherited");
+        assert_eq!(
+            db1.dns.domains,
+            vec!["corp.example".to_owned()],
+            "still inherited"
+        );
         assert_eq!(db1.path, "office/london/db1");
     }
 
@@ -461,7 +470,10 @@ mod tests {
         );
         let all = resolve(&root).unwrap();
         assert!(!all["office"].enabled);
-        assert!(!all["office/london"].enabled, "a child cannot re-enable itself");
+        assert!(
+            !all["office/london"].enabled,
+            "a child cannot re-enable itself"
+        );
     }
 
     #[test]
@@ -488,13 +500,29 @@ mod tests {
 
     #[test]
     fn unknown_names_and_bad_shapes_refuse() {
-        let root = key("Profiles", &[], vec![key("x", &[("Address.Dhcp4", RawValue::Int(1))], vec![])]);
+        let root = key(
+            "Profiles",
+            &[],
+            vec![key("x", &[("Address.Dhcp4", RawValue::Int(1))], vec![])],
+        );
         assert!(resolve(&root).unwrap_err().contains("unknown value"));
-        let root = key("Profiles", &[], vec![key("x", &[("Mtu.Value", s("12"))], vec![])]);
+        let root = key(
+            "Profiles",
+            &[],
+            vec![key("x", &[("Mtu.Value", s("12"))], vec![])],
+        );
         assert!(resolve(&root).unwrap_err().contains("below 68"));
-        let root = key("Profiles", &[], vec![key("x", &[("Address.OnExpiry", s("hold"))], vec![])]);
+        let root = key(
+            "Profiles",
+            &[],
+            vec![key("x", &[("Address.OnExpiry", s("hold"))], vec![])],
+        );
         assert!(resolve(&root).unwrap_err().contains("OnExpiry"));
-        let root = key("Profiles", &[], vec![key("x", &[("Route.Gateway", s("gateway"))], vec![])]);
+        let root = key(
+            "Profiles",
+            &[],
+            vec![key("x", &[("Route.Gateway", s("gateway"))], vec![])],
+        );
         assert!(resolve(&root).unwrap_err().contains("Route.Gateway"));
     }
 

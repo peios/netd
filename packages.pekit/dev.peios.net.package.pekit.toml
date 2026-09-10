@@ -1,0 +1,26 @@
+# Keep man-db's search index coherent when the operator manual is installed.
+side_effects = ["man-db"]
+
+# Stateless operator client. It owns no service state and speaks the public
+# netd control protocol, so it need not drag the privileged daemon into an
+# image which supplies another conforming network manager.
+[package]
+name        = "dev.peios.net"
+description = "Operator command for the Peios network manager"
+
+[provides]
+net = "{{version}}-15"
+
+[replaces]
+net = "<= 0.1.0-14"
+
+[dependencies]
+"dev.peios.libpeios" = ">= 0.5.0"
+"org.gnu.glibc"      = "*"
+"org.gnu.gcc-libgcc" = "*"
+
+[files]
+"@source:LICENSE"               = "usr/share/licenses/dev.peios.net/LICENSE"
+":licenses/**"                  = "usr/share/licenses/dev.peios.net/third-party"
+":usr/bin/net"                  = "usr/bin/net"
+":usr/share/man/man1/net.1.gz"  = "usr/share/man/man1/net.1.gz"

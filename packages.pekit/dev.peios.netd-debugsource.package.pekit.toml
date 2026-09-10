@@ -1,0 +1,13 @@
+[package]
+name         = "dev.peios.netd-debugsource"
+architecture = "x86_64"
+description  = "Exact debug sources for netd and net"
+
+[dependencies]
+"dev.peios.netd-debuginfo" = "= {{version}}-15"
+"dev.peios.net-debuginfo"  = "= {{version}}-15"
+
+[files]
+"@source:LICENSE"   = "usr/share/licenses/dev.peios.netd-debugsource/LICENSE"
+":licenses/**"      = "usr/share/licenses/dev.peios.netd-debugsource/third-party"
+":usr/src/debug/**" = "usr/src/debug"

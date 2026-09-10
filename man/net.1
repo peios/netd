@@ -1,0 +1,69 @@
+.TH NET 1 "September 2026" "Peios netd 0.1.1" "User Commands"
+.SH NAME
+net \- inspect and control the Peios network manager
+.SH SYNOPSIS
+.B net status
+.br
+.B net renew
+.I interface
+.br
+.B net reconcile
+.br
+.B net rules
+.br
+.B net profiles
+.br
+.B net wait
+.I level
+.RI [ timeout-seconds ]
+.br
+.B net version
+.SH DESCRIPTION
+.B net
+is the stateless operator client for
+.BR netd (8).
+Network configuration remains in the registry below
+.BR Machine\\System\\Network ;
+this command observes the effective state and asks the daemon to perform
+bounded control operations.
+.SH COMMANDS
+.TP
+.B status
+Show machine readiness and each interface's policy verdict, link state,
+addresses, routes, name servers, network identity, and lease state.
+.TP
+.BI renew " interface"
+Renew the named interface's offered-address lease. This operation requires
+the NETWORK_CONTROL right on the netd control object.
+.TP
+.B reconcile
+Ask netd to compare the kernel with the current registry state immediately.
+This operation requires NETWORK_CONTROL.
+.TP
+.B rules
+List the interface-layer policy forest from the registry.
+.TP
+.B profiles
+List network profiles and the values each profile defines directly.
+.TP
+.BI wait " level " "[timeout-seconds]"
+Wait until machine readiness reaches
+.BR link ,
+.BR addressed ,
+or
+.BR routed .
+The default timeout is 60 seconds.
+.TP
+.B version
+Print the client version.
+.SH FILES
+.TP
+.I /run/netd/control.sock
+The native netd control object.
+.SH EXIT STATUS
+Zero on success, one on an operational failure or timeout, and two for invalid
+command syntax.
+.SH SEE ALSO
+.BR netd (8),
+.BR reg (1),
+.BR regman (1)

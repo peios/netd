@@ -1,0 +1,48 @@
+.TH NETD 8 "September 2026" "Peios netd 0.1.1" "System Administration"
+.SH NAME
+netd \- reconcile Peios network state from the registry
+.SH SYNOPSIS
+.B /usr/sbin/netd
+.SH DESCRIPTION
+.B netd
+is the Peios network manager and the executor of Peios Network Policy's
+interface layer. It reads desired state below
+.BR Machine\\System\\Network ,
+observes links over rtnetlink, and owns links, addresses, routes, DHCP, router
+discovery, and the network inventory for interfaces policy tells it to join.
+.PP
+The daemon runs as SYSTEM because current Peios network-administration and raw
+packet privileges are held by that identity. Its service publishes the
+.B network
+role and readiness levels
+.BR link ,
+.BR addressed ,
+and
+.BR routed .
+.PP
+Configuration is declarative. Manual changes to a joined interface may be
+reverted at the next reconciliation. An interface whose policy verdict is
+.B IGNORE
+is not touched.
+.SH FILES
+.TP
+.I /run/netd/control.sock
+Control and status object used by
+.BR net (1)
+and the resolver integration.
+.TP
+.I /var/state/netd
+Persistent network and interface identity state.
+.TP
+.I /usr/share/regman/netd.regman
+Machine-readable registry reference installed by the package.
+.SH SECURITY
+Query and control operations are authorised against the descriptor stored in
+.B Machine\\System\\Network ControlSecurity.
+The compiled default allows everyone to query and restricts control to SYSTEM
+and Administrators. Registry Status keys written by netd are protected from
+operator writes.
+.SH SEE ALSO
+.BR net (1),
+.BR reg (1),
+.BR regman (1)

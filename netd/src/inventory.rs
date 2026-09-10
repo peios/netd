@@ -113,12 +113,16 @@ fn set_multi(key: &Key, name: &str, values: &[String]) {
         data.push(0);
     }
     data.push(0);
-    if let Ok(v) = key.query_value(name.as_bytes(), None) {
-        if v.ty == ValueType::MULTI_SZ && v.data == data {
-            return;
-        }
+    if let Ok(v) = key.query_value(name.as_bytes(), None)
+        && v.ty == ValueType::MULTI_SZ
+        && v.data == data
+    {
+        return;
     }
-    if let Err(e) = key.set_value(name.as_bytes(), ValueType::MULTI_SZ, &data).call() {
+    if let Err(e) = key
+        .set_value(name.as_bytes(), ValueType::MULTI_SZ, &data)
+        .call()
+    {
         log::warn(format_args!("inventory: could not set {name}: {e}"));
     }
 }
@@ -197,12 +201,14 @@ pub fn sync(record: &InterfaceRecord<'_>) {
 /// client and a server-side reservation has something to match.
 pub fn client_id(ifid: &str, generate: impl FnOnce() -> Vec<u8>) -> Vec<u8> {
     let key = interface_key(ifid);
-    if let Some(k) = &key {
-        if let Some(s) = current(k, "ClientId") {
-            match parse_hex(&s) {
-                Some(id) if !id.is_empty() => return id,
-                _ => log::warn(format_args!("{ifid}: ClientId {s:?} is not hex; regenerating")),
-            }
+    if let Some(k) = &key
+        && let Some(s) = current(k, "ClientId")
+    {
+        match parse_hex(&s) {
+            Some(id) if !id.is_empty() => return id,
+            _ => log::warn(format_args!(
+                "{ifid}: ClientId {s:?} is not hex; regenerating"
+            )),
         }
     }
     let id = generate();
@@ -260,9 +266,21 @@ pub fn network_sync(id: &str, signals: &Signals, last_interface: &str, now_secs:
     record.requested_address = current(&key, "RequestedAddress").and_then(|s| s.parse().ok());
     if let Some(status) = status_key(&key, id) {
         set_sz(&status, "Kind", &signals.kind);
-        set_opt_sz(&status, "Server", signals.server.map(|s| s.to_string()).as_deref());
-        set_opt_sz(&status, "Gateway", signals.gateway.map(|g| g.to_string()).as_deref());
-        set_opt_sz(&status, "Router", signals.router6.map(|r| r.to_string()).as_deref());
+        set_opt_sz(
+            &status,
+            "Server",
+            signals.server.map(|s| s.to_string()).as_deref(),
+        );
+        set_opt_sz(
+            &status,
+            "Gateway",
+            signals.gateway.map(|g| g.to_string()).as_deref(),
+        );
+        set_opt_sz(
+            &status,
+            "Router",
+            signals.router6.map(|r| r.to_string()).as_deref(),
+        );
         let mut prefixes: Vec<String> = Vec::new();
         if let Some((net, p)) = signals.subnet {
             prefixes.push(format!("{net}/{p}"));

@@ -14,9 +14,14 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::Duration;
 
-use libnetd::{CONTROL_SOCKET_PATH, NETD_RUN_DIR, NETWORK_ALL_ACCESS, NETWORK_CONTROL, NETWORK_QUERY, Reply, Request};
+use libnetd::{
+    CONTROL_SOCKET_PATH, NETD_RUN_DIR, NETWORK_ALL_ACCESS, NETWORK_CONTROL, NETWORK_QUERY, Reply,
+    Request,
+};
 use peios::access::AccessCheck;
-use peios::security::{AccessMask, AceFlags, AclBuilder, GenericMapping, SdBuilder, SecurityDescriptor, Sid, WellKnown};
+use peios::security::{
+    AccessMask, AceFlags, AclBuilder, GenericMapping, SdBuilder, SecurityDescriptor, Sid, WellKnown,
+};
 use peios::token::Token;
 
 use crate::log;
@@ -50,14 +55,39 @@ fn protect(path: &Path) {
     let system = Sid::well_known(WellKnown::System);
     let everyone = Sid::well_known(WellKnown::Everyone);
     let descriptor = AclBuilder::new()
-        .allow(system.as_ref(), AccessMask::GENERIC_ALL.bits(), AceFlags::empty())
-        .allow(everyone.as_ref(), AccessMask::GENERIC_READ.bits() | AccessMask::GENERIC_WRITE.bits() | AccessMask::GENERIC_EXECUTE.bits(), AceFlags::empty())
+        .allow(
+            system.as_ref(),
+            AccessMask::GENERIC_ALL.bits(),
+            AceFlags::empty(),
+        )
+        .allow(
+            everyone.as_ref(),
+            AccessMask::GENERIC_READ.bits()
+                | AccessMask::GENERIC_WRITE.bits()
+                | AccessMask::GENERIC_EXECUTE.bits(),
+            AceFlags::empty(),
+        )
         .build()
-        .and_then(|dacl| SdBuilder::new().owner(system.as_ref()).group(system.as_ref()).dacl(&dacl).build());
+        .and_then(|dacl| {
+            SdBuilder::new()
+                .owner(system.as_ref())
+                .group(system.as_ref())
+                .dacl(&dacl)
+                .build()
+        });
     match descriptor {
         Ok(sd) => {
-            if let Err(e) = peios::file::set_sd(None, path, SecInfo::OWNER | SecInfo::GROUP | SecInfo::DACL, &sd, 0) {
-                log::error(format_args!("could not set a descriptor on {}: {e}", path.display()));
+            if let Err(e) = peios::file::set_sd(
+                None,
+                path,
+                SecInfo::OWNER | SecInfo::GROUP | SecInfo::DACL,
+                &sd,
+                0,
+            ) {
+                log::error(format_args!(
+                    "could not set a descriptor on {}: {e}",
+                    path.display()
+                ));
             }
         }
         Err(e) => log::warn(format_args!("could not build a descriptor: {e}")),
@@ -74,10 +104,14 @@ impl ControlObject {
         if let Some(bytes) = configured {
             match SecurityDescriptor::from_validated_bytes(bytes.to_vec()) {
                 Ok(sd) => return ControlObject { sd },
-                Err(e) => log::warn(format_args!("ControlSecurity is not a valid descriptor ({e}); using the default")),
+                Err(e) => log::warn(format_args!(
+                    "ControlSecurity is not a valid descriptor ({e}); using the default"
+                )),
             }
         }
-        ControlObject { sd: Self::default_sd() }
+        ControlObject {
+            sd: Self::default_sd(),
+        }
     }
 
     fn default_sd() -> SecurityDescriptor {
@@ -86,16 +120,35 @@ impl ControlObject {
         let everyone = Sid::well_known(WellKnown::Everyone);
         AclBuilder::new()
             .allow(system.as_ref(), NETWORK_ALL_ACCESS, AceFlags::empty())
-            .allow(administrators.as_ref(), NETWORK_ALL_ACCESS, AceFlags::empty())
-            .allow(everyone.as_ref(), NETWORK_QUERY | AccessMask::READ_CONTROL.bits(), AceFlags::empty())
+            .allow(
+                administrators.as_ref(),
+                NETWORK_ALL_ACCESS,
+                AceFlags::empty(),
+            )
+            .allow(
+                everyone.as_ref(),
+                NETWORK_QUERY | AccessMask::READ_CONTROL.bits(),
+                AceFlags::empty(),
+            )
             .build()
-            .and_then(|dacl| SdBuilder::new().owner(system.as_ref()).group(system.as_ref()).dacl(&dacl).build())
+            .and_then(|dacl| {
+                SdBuilder::new()
+                    .owner(system.as_ref())
+                    .group(system.as_ref())
+                    .dacl(&dacl)
+                    .build()
+            })
             .expect("the compiled default descriptor builds")
     }
 
     fn mapping() -> GenericMapping {
         let rc = AccessMask::READ_CONTROL.bits();
-        GenericMapping::new(NETWORK_QUERY | rc, NETWORK_CONTROL | rc, NETWORK_QUERY, NETWORK_ALL_ACCESS)
+        GenericMapping::new(
+            NETWORK_QUERY | rc,
+            NETWORK_CONTROL | rc,
+            NETWORK_QUERY,
+            NETWORK_ALL_ACCESS,
+        )
     }
 
     /// Whether the peer holds `right`.
@@ -107,11 +160,15 @@ impl ControlObject {
                 return false;
             }
         };
-        AccessCheck::new(&self.sd, AccessMask::from_bits_retain(right), Self::mapping())
-            .token(token.as_fd())
-            .check()
-            .map(|d| d.allowed)
-            .unwrap_or(false)
+        AccessCheck::new(
+            &self.sd,
+            AccessMask::from_bits_retain(right),
+            Self::mapping(),
+        )
+        .token(token.as_fd())
+        .check()
+        .map(|d| d.allowed)
+        .unwrap_or(false)
     }
 }
 

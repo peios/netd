@@ -63,10 +63,11 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
     if desired.up && !link.up {
         ops.push(Op::LinkUp(index));
     }
-    if let Some(mtu) = desired.mtu {
-        if mtu != link.mtu && mtu >= 68 {
-            ops.push(Op::Mtu(index, mtu));
-        }
+    if let Some(mtu) = desired.mtu
+        && mtu != link.mtu
+        && mtu >= 68
+    {
+        ops.push(Op::Mtu(index, mtu));
     }
 
     let want: BTreeSet<Address> = desired
@@ -91,8 +92,14 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
             IpAddr::V4(_) => true,
             IpAddr::V6(v6) => !is_v6_link_local(&v6),
         })
-        .cloned()
-        .map(|a| Address { tentative: false, ..a })
+        .map(|a| Address {
+            index: a.index,
+            address: a.address,
+            prefix: a.prefix,
+            deprecated: a.deprecated,
+            no_prefix_route: a.no_prefix_route,
+            tentative: false,
+        })
         .collect();
     let wanted_key = |a: &Address| {
         want.iter()
