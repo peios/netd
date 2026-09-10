@@ -8,11 +8,7 @@ side_effects = ["man-db"]
 name        = "dev.peios.net"
 description = "Operator command for the Peios network manager"
 
-[provides]
-net = "{{version}}-15"
 
-[replaces]
-net = "<= 0.1.0-14"
 
 [dependencies]
 "dev.peios.libpeios" = ">= 0.5.0"
