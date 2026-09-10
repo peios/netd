@@ -307,6 +307,3 @@ rustc           = "*"
 gcc             = "*"
 "libclang-dev" = "*"
 pkgconf         = "*"
-
-[clean]
-command = "rm -rf out"
