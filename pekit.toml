@@ -83,7 +83,6 @@ if versions != [expected]:
 
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$PEKIT_WORKSPACE_ROOT=$DEBUG_PREFIX/.workspace --remap-path-prefix=$PEKIT_OUT_BASE=$DEBUG_PREFIX/.build --remap-path-prefix=$SRC=$DEBUG_PREFIX --remap-path-prefix=$PEKIT_VENDOR_OUT/vendor=$DEBUG_PREFIX/vendor"
 
-cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/tests"
 cargo build --release --locked --offline --bin netd --bin net --target-dir "$PEKIT_OUT/target-a"
 cargo build --release --locked --offline --bin netd --bin net --target-dir "$PEKIT_OUT/target-b"
 cmp "$PEKIT_OUT/target-a/release/netd" "$PEKIT_OUT/target-b/release/netd"
@@ -156,6 +155,59 @@ done
 rm -f "$PEKIT_OUT/.debug-sources"
 test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
 
+'''
+
+[build.main.dependencies.peipkg]
+"org.git.kernel.dash"      = "*"
+"org.gnu.coreutils"        = "*"
+"org.gnu.diffutils"        = "*"
+"org.gnu.findutils"        = "*"
+"org.gnu.grep"             = "*"
+"org.gnu.sed"              = "*"
+"org.gnu.gzip"             = "*"
+"org.rust-lang.rust"       = ">= 1.98.1, < 2"
+"org.gnu.gcc"              = ">= 16, < 17"
+"org.gnu.binutils"         = "*"
+"org.sourceware.debugedit" = "*"
+"org.python.python3"       = "*"
+"org.llvm.clang-devel"     = ">= 22, < 23"
+"org.pkgconf.pkgconf"      = "*"
+"dev.peios.libpeios-devel" = "= 0.5.0-1"
+
+[build.main.dependencies.apt]
+dash            = "*"
+coreutils       = "*"
+diffutils       = "*"
+findutils       = "*"
+grep            = "*"
+sed             = "*"
+gzip            = "*"
+git             = "*"
+cargo           = "*"
+rustc           = "*"
+gcc             = "*"
+binutils        = "*"
+debugedit       = "*"
+python3         = "*"
+"libclang-dev" = "*"
+pkgconf         = "*"
+
+[test]
+gate = true
+needs = ["main"]
+command = '''
+set -eu
+export CARGO_HOME=$PEKIT_OUT/cargo-home
+mkdir -p "$CARGO_HOME"
+cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
+unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
+test "$(pkg-config --modversion peios)" = 0.5.0
+export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/tests"
+
+# Validate the exact staged package output produced by build.main.
+SRC=$(pwd -P)
+PEKIT_OUT="$PEKIT_MAIN_OUT"
 test "$("$PEKIT_OUT/usr/bin/net" version)" = "net $PEKIT_VERSION"
 set +e
 "$PEKIT_OUT/usr/bin/net" > "$PEKIT_OUT/net-usage" 2>&1
@@ -242,7 +294,7 @@ do
 done
 '''
 
-[build.main.dependencies.peipkg]
+[test.dependencies.peipkg]
 "org.git.kernel.dash"      = "*"
 "org.gnu.coreutils"        = "*"
 "org.gnu.diffutils"        = "*"
@@ -259,7 +311,7 @@ done
 "org.pkgconf.pkgconf"      = "*"
 "dev.peios.libpeios-devel" = "= 0.5.0-1"
 
-[build.main.dependencies.apt]
+[test.dependencies.apt]
 dash            = "*"
 coreutils       = "*"
 diffutils       = "*"
@@ -274,36 +326,5 @@ gcc             = "*"
 binutils        = "*"
 debugedit       = "*"
 python3         = "*"
-"libclang-dev" = "*"
-pkgconf         = "*"
-
-[test]
-needs = ["vendor"]
-command = '''
-set -eu
-export CARGO_HOME=$PEKIT_OUT/cargo-home
-mkdir -p "$CARGO_HOME"
-cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
-unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-test "$(pkg-config --modversion peios)" = 0.5.0
-export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
-cargo test --workspace --locked --offline
-'''
-
-[test.dependencies.peipkg]
-"org.git.kernel.dash"      = "*"
-"org.gnu.coreutils"        = "*"
-"org.rust-lang.rust"       = ">= 1.98.1, < 2"
-"org.gnu.gcc"              = ">= 16, < 17"
-"org.llvm.clang-devel"     = ">= 22, < 23"
-"org.pkgconf.pkgconf"      = "*"
-"dev.peios.libpeios-devel" = "= 0.5.0-1"
-
-[test.dependencies.apt]
-dash            = "*"
-coreutils       = "*"
-cargo           = "*"
-rustc           = "*"
-gcc             = "*"
 "libclang-dev" = "*"
 pkgconf         = "*"
