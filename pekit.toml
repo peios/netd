@@ -24,7 +24,7 @@ test -n "$(find "$PEKIT_OUT/vendor" -mindepth 1 -maxdepth 1 -type d -print -quit
 '''
 
 [build.vendor.dependencies.peipkg]
-"org.rust-lang.rust"          = ">= 1.98.1, < 2"
+"org.rust-lang.rust"          = ">= 1.98.1"
 "org.mozilla.ca-certificates" = "*"
 "org.gnu.findutils"           = "*"
 "org.gnu.grep"                = "*"
@@ -44,10 +44,6 @@ export CARGO_HOME=$PEKIT_OUT/cargo-home
 mkdir -p "$CARGO_HOME"
 cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 
-if test -d /usr/libexec/coreutils-build; then
-  export PATH=/usr/libexec/coreutils-build:$PATH
-fi
-
 for tool in cargo rustc gcc pkg-config python3 find sort cmp grep sed gzip readelf objcopy strip debugedit; do
   command -v "$tool" >/dev/null || {
     echo "netd: missing required build tool: $tool" >&2
@@ -58,10 +54,13 @@ done
 # Native releases consume the qualified packaged ABI and generated kernel
 # headers. Sibling libpeios, peios-rs, and PKM checkouts are never consulted.
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-test "$(pkg-config --modversion peios)" = 0.5.0 || {
-  echo "netd: dev.peios.libpeios-devel 0.5.0 is required" >&2
+# A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
+pkg-config --atleast-version=0.5.0 peios || {
+  echo "netd: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
   exit 1
 }
+readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
+  grep -E '\(SONAME\).*\[libpeios\.so\.0\]' >/dev/null
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
 
 cargo metadata --locked --offline --no-deps --format-version 1 |
@@ -160,20 +159,23 @@ test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
 
 [build.main.dependencies.peipkg]
 "org.git.kernel.dash"      = "*"
-"org.gnu.coreutils"        = "*"
+"dev.peios.peiosutils"     = "*"
+# The payload is staged with GNU `install -m`.
+"org.gnu.coreutils-build-compat" = "*"
 "org.gnu.diffutils"        = "*"
 "org.gnu.findutils"        = "*"
 "org.gnu.grep"             = "*"
 "org.gnu.sed"              = "*"
 "org.gnu.gzip"             = "*"
-"org.rust-lang.rust"       = ">= 1.98.1, < 2"
-"org.gnu.gcc"              = ">= 16, < 17"
+"org.rust-lang.rust"       = ">= 1.98.1"
+"org.gnu.gcc"              = ">= 16"
 "org.gnu.binutils"         = "*"
 "org.sourceware.debugedit" = "*"
 "org.python.python3"       = "*"
-"org.llvm.clang-devel"     = ">= 22, < 23"
+# Bindgen uses the libclang C API, supported from LLVM 22.1.8.
+"org.llvm.clang-devel"     = ">= 22.1.8"
 "org.pkgconf.pkgconf"      = "*"
-"dev.peios.libpeios-devel" = "= 0.5.0-1"
+"dev.peios.libpeios-devel" = ">= 0.5.0"
 
 [test]
 gate = true
@@ -184,8 +186,17 @@ export CARGO_HOME=$PEKIT_OUT/cargo-home
 mkdir -p "$CARGO_HOME"
 cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-test "$(pkg-config --modversion peios)" = 0.5.0
+# A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
+pkg-config --atleast-version=0.5.0 peios || {
+  echo "netd: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
+  exit 1
+}
+readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
+  grep -E '\(SONAME\).*\[libpeios\.so\.0\]' >/dev/null
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+# The tests run with the same control-flow protection as build.main (PEI-1155).
+export RUSTC_BOOTSTRAP=1
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-Zcf-protection=full"
 cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/tests"
 
 # Validate the exact staged package output produced by build.main.
@@ -256,15 +267,24 @@ do
   readelf -h "$elf" | grep -Eq 'Type:[[:space:]]+DYN'
   readelf -lW "$elf" | grep -q 'GNU_RELRO'
   readelf -lW "$elf" | grep -Eq 'GNU_STACK[[:space:]].*RW[[:space:]]'
-  ! readelf -lW "$elf" | grep -Eq 'GNU_STACK[[:space:]].*RWE'
+  if readelf -lW "$elf" | grep -E 'GNU_STACK[[:space:]].*RWE' >/dev/null; then
+    echo "netd: $elf has an executable stack" >&2
+    exit 1
+  fi
   readelf -dW "$elf" | grep -q 'BIND_NOW'
   readelf -dW "$elf" | grep -q 'RELR'
   readelf -dW "$elf" | grep -Eq 'FLAGS_1.*PIE'
   readelf -dW "$elf" | grep -Fq 'Shared library: [libpeios.so.0]'
   readelf -dW "$elf" | grep -Fq 'Shared library: [libgcc_s.so.1]'
   readelf -dW "$elf" | grep -Fq 'Shared library: [libc.so.6]'
-  ! readelf -dW "$elf" | grep -Eq '(RPATH|RUNPATH|TEXTREL)'
-  ! readelf -SW "$elf" | grep -q '\.debug_info'
+  if readelf -dW "$elf" | grep -E '(RPATH|RUNPATH|TEXTREL)' >/dev/null; then
+    echo "netd: $elf carries a forbidden dynamic tag" >&2
+    exit 1
+  fi
+  if readelf -SW "$elf" | grep '\.debug_info' >/dev/null; then
+    echo "netd: $elf still contains unsplit debug information" >&2
+    exit 1
+  fi
   build_id=$(readelf -n "$elf" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)
   test -n "$build_id"
   debug=$PEKIT_OUT/debug/$component/usr/lib/debug/.build-id/$(printf %s "$build_id" | cut -c1-2)/$(printf %s "$build_id" | cut -c3-).debug
@@ -272,24 +292,28 @@ do
   readelf -SW "$debug" | grep -q '\.debug_info'
   test "$(readelf -n "$debug" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)" = "$build_id"
   for forbidden in "$SRC" "$PEKIT_VENDOR_OUT" "$PEKIT_OUT_BASE" "$PEKIT_WORKSPACE_ROOT"; do
-    ! grep -aF "$forbidden" "$elf" "$debug" >/dev/null
+    if grep -aF "$forbidden" "$elf" "$debug" >/dev/null; then
+      echo "netd: build path $forbidden leaked into $elf or its debug file" >&2
+      exit 1
+    fi
   done
 done
 '''
 
 [test.dependencies.peipkg]
 "org.git.kernel.dash"      = "*"
-"org.gnu.coreutils"        = "*"
+"dev.peios.peiosutils"     = "*"
 "org.gnu.diffutils"        = "*"
 "org.gnu.findutils"        = "*"
 "org.gnu.grep"             = "*"
 "org.gnu.sed"              = "*"
 "org.gnu.gzip"             = "*"
-"org.rust-lang.rust"       = ">= 1.98.1, < 2"
-"org.gnu.gcc"              = ">= 16, < 17"
+"org.rust-lang.rust"       = ">= 1.98.1"
+"org.gnu.gcc"              = ">= 16"
 "org.gnu.binutils"         = "*"
 "org.sourceware.debugedit" = "*"
 "org.python.python3"       = "*"
-"org.llvm.clang-devel"     = ">= 22, < 23"
+# Bindgen uses the libclang C API, supported from LLVM 22.1.8.
+"org.llvm.clang-devel"     = ">= 22.1.8"
 "org.pkgconf.pkgconf"      = "*"
-"dev.peios.libpeios-devel" = "= 0.5.0-1"
+"dev.peios.libpeios-devel" = ">= 0.5.0"

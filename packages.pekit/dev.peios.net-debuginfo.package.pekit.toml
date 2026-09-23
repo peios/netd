@@ -3,7 +3,7 @@ name        = "dev.peios.net-debuginfo"
 description = "Debugging symbols for the Peios network operator command"
 
 [dependencies]
-"dev.peios.net" = "= {{version}}-1"
+"dev.peios.net" = "= {{release}}"
 
 [files]
 "@source:LICENSE"              = "usr/share/licenses/dev.peios.net-debuginfo/LICENSE"
