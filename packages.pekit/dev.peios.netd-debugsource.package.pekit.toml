@@ -4,8 +4,8 @@ architecture = "x86_64"
 description  = "Exact debug sources for netd and net"
 
 [dependencies]
-"dev.peios.netd-debuginfo" = "= {{version}}-1"
-"dev.peios.net-debuginfo"  = "= {{version}}-1"
+"dev.peios.netd-debuginfo" = "= {{release}}"
+"dev.peios.net-debuginfo"  = "= {{release}}"
 
 [files]
 "@source:LICENSE"   = "usr/share/licenses/dev.peios.netd-debugsource/LICENSE"
