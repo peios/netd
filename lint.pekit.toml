@@ -39,6 +39,3 @@ stripped    = true
 debuginfo   = "{{name}}-debuginfo"
 build_paths = "forbidden"
 soname      = true
-
-[allow]
-"elf.cet" = "Rust 1.98 does not emit the x86 GNU property note for IBT or shadow-stack compatibility; all C and assembly dependencies retain NX stack and full relocation hardening"
