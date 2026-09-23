@@ -1,11 +1,13 @@
 [package]
 name        = "dev.peios.netd-debuginfo"
 description = "Debugging symbols for the Peios network service"
+# The same crate closure as netd; checked by build.main.
+license     = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR BSD-2-Clause OR MIT) AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)"
 
 [dependencies]
 "dev.peios.netd" = "= {{release}}"
 
 [files]
 "@source:LICENSE"               = "usr/share/licenses/dev.peios.netd-debuginfo/LICENSE"
-":licenses/**"                  = "usr/share/licenses/dev.peios.netd-debuginfo/third-party"
+":licenses/netd/**"             ="usr/share/licenses/dev.peios.netd-debuginfo/third-party"
 ":debug/netd/usr/lib/debug/**"  = "usr/lib/debug"

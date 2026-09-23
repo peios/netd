@@ -7,6 +7,9 @@ side_effects = ["man-db"]
 [package]
 name        = "dev.peios.netd"
 description = "Peios network manager for links, addresses, routes, and DHCP"
+# The crate closure netd links; build.main's collect-rust-licences --check
+# holds this to what those crates declare.
+license     = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR BSD-2-Clause OR MIT) AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)"
 
 
 
@@ -17,7 +20,7 @@ description = "Peios network manager for links, addresses, routes, and DHCP"
 
 [files]
 "@source:LICENSE"                                = "usr/share/licenses/dev.peios.netd/LICENSE"
-":licenses/**"                                   = "usr/share/licenses/dev.peios.netd/third-party"
+":licenses/netd/**"                              ="usr/share/licenses/dev.peios.netd/third-party"
 ":usr/sbin/netd"                                 = "usr/sbin/netd"
 ":usr/share/regim/netd-service.reg"              = "usr/share/regim/netd-service.reg"
 ":usr/share/regim/netd-default-profile.reg"      = "usr/share/regim/netd-default-profile.reg"

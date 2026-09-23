@@ -2,6 +2,8 @@
 name         = "dev.peios.netd-debugsource"
 architecture = "x86_64"
 description  = "Exact debug sources for netd and net"
+# The union of both binaries' crate closures; checked by build.main.
+license      = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR BSD-2-Clause OR MIT) AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)"
 
 [dependencies]
 "dev.peios.netd-debuginfo" = "= {{release}}"
@@ -9,5 +11,5 @@ description  = "Exact debug sources for netd and net"
 
 [files]
 "@source:LICENSE"   = "usr/share/licenses/dev.peios.netd-debugsource/LICENSE"
-":licenses/**"      = "usr/share/licenses/dev.peios.netd-debugsource/third-party"
+":licenses/debugsource/**" ="usr/share/licenses/dev.peios.netd-debugsource/third-party"
 ":usr/src/debug/**" = "usr/src/debug"
