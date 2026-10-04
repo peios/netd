@@ -18,6 +18,10 @@
 //! the result fields or `error` (string).
 //!
 //! This crate is deliberately inert: types and a codec, nothing that can act.
+//! It also holds the rule for a value a program writing netd's registry
+//! configuration needs to check: the machine's name, in [`hostname`].
+
+pub mod hostname;
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;

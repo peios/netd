@@ -36,12 +36,16 @@ full, Authenticated Users read). `Status` keys carry their own descriptor.
 canonical: Machine\System\Network Hostname
 type: REG_SZ
 default: (unset)
-valid: a hostname
+valid: one DNS label: letters, digits and hyphens, at most 63, not beginning or ending with a hyphen, not localhost
 applies: live
 
 The static hostname. netd calls `sethostname(2)` with it on start and on
 change. Absent, the hostname stays whatever it was — or, on an interface
 whose profile says `Hostname.Offered`, whatever the network supplied.
+
+netd sets whatever is written, and the kernel takes nearly anything, but a
+network carries the name as one label, so first-boot setup and System
+Settings hold it to that rule before writing it (`libnetd::hostname`).
 
 --- machine\system\network readiness
 canonical: Machine\System\Network Readiness
