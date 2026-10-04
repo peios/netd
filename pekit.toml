@@ -14,7 +14,7 @@ set -eu
 export CARGO_HOME=/tmp/cargo-netd-vendor
 mkdir -p "$CARGO_HOME" "$PEKIT_OUT"
 
-PEIOS_RS_REV=f4309f78fbaa878a14429a5e07d778dba9ddfab7
+PEIOS_RS_REV=2a2a6bb022192f6e98d4e4a6a7efdbdd40d53b35
 PKM_REV=9c1d56c7ddf1d75356173815f973bf3b6329e00f
 grep -F "peios-rs.git?rev=$PEIOS_RS_REV#$PEIOS_RS_REV" Cargo.lock >/dev/null
 grep -F "pkm.git?rev=$PKM_REV#$PKM_REV" Cargo.lock >/dev/null
