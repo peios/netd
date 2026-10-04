@@ -26,6 +26,11 @@ lookups() {
 {
 step "wait for the network"
 net wait routed 60; echo "wait exit=$?"
+# The steps below take milliseconds each now that they wait on the engine
+# rather than sleep, so the lookups can outrun resolvd, which peinit starts
+# (and on a fresh boot restarts) a moment after the network is routed.
+n=0; until resolv status >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 60 ] && break; sleep 0.5; done
+echo "resolvd answered after $n tries"; sleep 3; resolv status >/dev/null 2>&1; echo "still up exit=$?"
 step "the context as netd wrote it"
 IFID=""
 for k in $(reg ls --keys-only $N/Interfaces); do IFID="${k%/}"; break; done
