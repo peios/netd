@@ -17,6 +17,11 @@ net \- inspect and control the Peios network manager
 .I level
 .RI [ timeout-seconds ]
 .br
+.B net policy
+.br
+.B net policy wait
+.RI [ timeout-seconds ]
+.br
 .B net version
 .SH DESCRIPTION
 .B net
@@ -53,6 +58,22 @@ Wait until machine readiness reaches
 or
 .BR routed .
 The default timeout is 60 seconds.
+.TP
+.B policy
+Show whether the kernel's filtering engine (NTFE) is enforcing a packet
+policy, its generation, whether every change written so far is in force,
+whether the last re-read was refused, and how many interfaces have a
+network context.
+.TP
+.BI "policy wait " "[timeout-seconds]"
+Wait until every change to
+.B Machine\\System\\Network
+made before the command started is in force in the kernel.
+A registry write that has returned is delivered, not yet enforced; the
+engine re-reads the key a moment later.
+Fails if that re-read was refused, in which case the previous generation
+still stands, or on timeout.
+The default timeout is 10 seconds.
 .TP
 .B version
 Print the client version.

@@ -5,6 +5,8 @@
 //! configuration and netd merely executes them. Changing the network is a
 //! registry write (`reg`); this command shows state and pokes the daemon.
 
+mod policy;
+
 use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 
@@ -13,7 +15,7 @@ use peios::registry::{Key, KeyAccess, OpenFlags, ValueType};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: net status\n       net renew <interface>\n       net reconcile\n       net rules\n       net profiles\n       net wait <link|addressed|routed> [timeout-seconds]\n       net version"
+        "usage: net status\n       net renew <interface>\n       net reconcile\n       net rules\n       net profiles\n       net wait <link|addressed|routed> [timeout-seconds]\n       net policy\n       net policy wait [timeout-seconds]\n       net version"
     );
     ExitCode::from(2)
 }
@@ -324,6 +326,12 @@ fn main() -> ExitCode {
             Ok(Reply::Status(_) | Reply::Snapshot(_)) => ExitCode::FAILURE,
         },
         ["rules"] => rules(),
+        ["policy"] => policy::show(),
+        ["policy", "wait"] => policy::wait(std::time::Duration::from_secs(10)),
+        ["policy", "wait", seconds] => match seconds.parse::<u64>() {
+            Ok(s) => policy::wait(std::time::Duration::from_secs(s)),
+            Err(_) => usage(),
+        },
         ["profiles"] | ["profile", "list"] => profiles(),
         ["wait", level] | ["wait", level, _] => {
             let Some(level) = Level::parse(level) else {
