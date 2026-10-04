@@ -189,7 +189,7 @@ pub fn load() -> Config {
         ));
         return config;
     };
-    config.hostname = read_sz(&root, "Hostname");
+    config.hostname = read_sz(&root, libnetd::hostname::HOSTNAME_VALUE);
     config.control_security = read(&root, "ControlSecurity")
         .filter(|v| v.ty == ValueType::BINARY && !v.data.is_empty())
         .map(|v| v.data);
