@@ -10,7 +10,7 @@
 #       --cmdline-extra 'loglevel=7 ignore_loglevel' netd/tests/vm/network-context.sh
 #
 # The console log (drive.py's --console-log) carries the kernel's
-# "pnp: network context: N interfaces; generation G" lines.
+# "ntfe: network context: N interfaces; generation G" lines.
 
 R=/share
 N=Machine/System/Network
@@ -51,7 +51,7 @@ reg set $N/Rules/Flow/dns-needs-trust Actions "multi:REJECT,REPORT(3)"
 reg new $N/Rules/Flow/dns-needs-trust/home
 reg set $N/Rules/Flow/dns-needs-trust/home Network.Trust.Equal home
 reg set $N/Rules/Flow/dns-needs-trust/home Actions multi:PASS
-sleep 3
+net policy wait
 step "no Trust on the record: the exception is false, lookups are refused"
 resolv flush
 lookups none
@@ -60,22 +60,22 @@ lookups none
 {
 step "the operator calls the network home: the context changes, lookups work"
 reg set $N/Networks/$NETID Trust home
-sleep 3
+net policy wait
 lookups home
 step "a different word: refused again"
 reg set $N/Networks/$NETID Trust cafe
-sleep 3
+net policy wait
 lookups cafe
 step "the word removed: absent, refused"
 reg del $N/Networks/$NETID Trust
-sleep 3
+net policy wait
 lookups gone
 step "home again, by Name this time is not enough: Trust is the fact"
 reg set $N/Networks/$NETID Name palfrey-home
-sleep 3
+net policy wait
 lookups named
 reg set $N/Networks/$NETID Trust home
-sleep 3
+net policy wait
 lookups trusted
 } > $R/03-trust-flips.txt 2>&1
 
@@ -86,7 +86,7 @@ reg set $N/Rules/Flow/unknown-network Direction.Equal out
 reg set $N/Rules/Flow/unknown-network Network.Id.Present dword:0
 reg set $N/Rules/Flow/unknown-network Priority dword:20
 reg set $N/Rules/Flow/unknown-network Actions multi:REJECT
-sleep 3
+net policy wait
 step "on a known network the rule is false: lookups still work"
 lookups known
 reg del $N/Rules/Flow/unknown-network -r
@@ -97,7 +97,7 @@ step "cleanup"
 reg del $N/Rules/Flow/dns-needs-trust -r
 reg del $N/Networks/$NETID Trust
 reg del $N/Networks/$NETID Name
-sleep 3
+net policy wait
 lookups final
 step "the inventory as left"
 reg get $N/Interfaces/$IFID/Status Network

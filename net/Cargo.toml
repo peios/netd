@@ -14,3 +14,4 @@ path = "src/main.rs"
 [dependencies]
 libnetd = { path = "../libnetd" }
 peios = { workspace = true }
+libc = { workspace = true }
