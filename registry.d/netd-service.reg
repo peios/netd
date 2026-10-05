@@ -27,8 +27,10 @@
     "is replaced -- the same arrangement lpsd has, recorded there.",
     "",
     "RestartPolicy is Always (2). A network manager that has exited is a",
-    "machine whose leases will silently expire; netd re-adopts kernel state",
-    "on restart, so a restart costs nothing visible.",
+    "machine whose leases will silently expire. A restart is not invisible:",
+    "the new process holds no lease until its INIT-REBOOT is answered, so its",
+    "first pass removes each leased address and default route, and the ACK",
+    "puts them back (PEI-1365).",
     "",
     "Shipped by the netd package into /usr/share/regim/; inert until an image",
     "names it in [registry] autoapply."
