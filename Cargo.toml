@@ -4,8 +4,11 @@ members = ["libnetd", "dhcp4", "dhcp6", "ndp", "netd", "net"]
 
 # netd is its own workspace root, like authd and peios-rs.
 #
-#   libnetd  the control wire: paths, readiness levels, request/response codec.
-#            No I/O, no policy.
+#   libnetd  the control wire: paths, readiness levels, request/response codec;
+#            and the laws of netd's configuration, pure: the hostname, the
+#            profile vocabulary, and (feature `policy`) the interface layer
+#            as netd builds and judges it, for a program that checks a change
+#            before making it. No I/O beyond the wire's framing.
 #   dhcp4    a DHCPv4 client: packet codec and the RFC 2131 state machine as a
 #            pure, clock-injected type. No sockets. Its own crate so the state
 #            machine is tested without a network and could be reused.
