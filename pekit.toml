@@ -15,7 +15,7 @@ export CARGO_HOME=/tmp/cargo-netd-vendor
 mkdir -p "$CARGO_HOME" "$PEKIT_OUT"
 
 PEIOS_RS_REV=2a2a6bb022192f6e98d4e4a6a7efdbdd40d53b35
-PKM_REV=9c1d56c7ddf1d75356173815f973bf3b6329e00f
+PKM_REV=17712f8fbf4889696c1c919f17409bc15f16efa0
 grep -F "peios-rs.git?rev=$PEIOS_RS_REV#$PEIOS_RS_REV" Cargo.lock >/dev/null
 grep -F "pkm.git?rev=$PKM_REV#$PKM_REV" Cargo.lock >/dev/null
 cargo vendor --locked "$PEKIT_OUT/vendor" > "$PEKIT_OUT/cargo-config.toml"
