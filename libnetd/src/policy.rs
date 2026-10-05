@@ -15,8 +15,9 @@
 //! rule abstains, exactly as if its action were `NULL`, and the forest
 //! answers without it (its parent, another tree, or the backstop).
 //!
-//! Pure: input is the neutral `RawKey` trees `config.rs` lowers from the
-//! registry.
+//! Pure: input is the neutral `RawKey` trees netd lowers from the
+//! registry. Here rather than in netd so that a program checking a change
+//! to the interface layer before making it applies netd's own laws to it.
 
 use std::collections::BTreeMap;
 
@@ -25,8 +26,8 @@ use pnp_core::{
     evaluate,
 };
 
-use crate::config::{RawKey, RawValue};
 use crate::profile::{self, Profile};
+use crate::raw::{RawKey, RawValue};
 
 /// A built generation: the forest and the profiles it may name.
 #[derive(Debug, Default)]

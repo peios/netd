@@ -18,10 +18,18 @@
 //! the result fields or `error` (string).
 //!
 //! This crate is deliberately inert: types and a codec, nothing that can act.
-//! It also holds the rule for a value a program writing netd's registry
-//! configuration needs to check: the machine's name, in [`hostname`].
+//! It also holds the laws a program writing netd's registry configuration
+//! needs to check its change by before making it: the machine's name, in
+//! [`hostname`]; a profile's vocabulary and inheritance, in [`profile`];
+//! and, with the `policy` feature, the interface layer as netd builds and
+//! judges it, in `policy`. They are netd's own, not copies, so the check
+//! and the daemon cannot disagree.
 
 pub mod hostname;
+#[cfg(feature = "policy")]
+pub mod policy;
+pub mod profile;
+pub mod raw;
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;

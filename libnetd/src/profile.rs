@@ -5,7 +5,7 @@
 //! lists every value). A profile is a key with flat dotted values —
 //! `Address.Offered`, `Dns.Servers`, `Route.Metric` — and no match block:
 //! which interfaces stand in it is the interface layer's decision
-//! (`policy.rs`), by a `JOIN(path)` verdict.
+//! ([`crate::policy`]), by a `JOIN(path)` verdict.
 //!
 //! Subkeys inherit: `office\london` carries every value of `office` and
 //! overrides those it names, per value name and wholesale (a list replaces
@@ -16,13 +16,14 @@
 //! brings the link up and nothing else. The shipped `default` profile is
 //! where the friendly behaviour lives, visibly and deletably.
 //!
-//! This module is pure: it reads the neutral `RawKey` tree that `config.rs`
-//! lowers from the registry, so the vocabulary is tested without one.
+//! This module is pure: it reads the neutral `RawKey` tree netd lowers from
+//! the registry, so the vocabulary is tested without one, and a program
+//! checking a profile before writing it applies netd's own laws.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::config::{RawKey, RawValue};
+use crate::raw::{RawKey, RawValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnExpiry {

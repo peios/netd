@@ -4,35 +4,18 @@
 //! `Machine\System\Network` is PNP's key. netd reads three things from it:
 //! the machine-level values (`Hostname`, `ControlSecurity`, `Duid`), the
 //! interface layer `Rules\Interface`, and the profile tree `Profiles\`.
-//! Both trees are lowered to [`RawKey`] here and built by `policy.rs`, so
-//! that everything with a law in it is testable without a registry.
+//! Both trees are lowered to [`RawKey`] here and built by libnetd's
+//! `policy`, so that everything with a law in it is testable without a
+//! registry.
 //!
 //! A malformed generation is refused as a whole by the builder; this module
 //! never guesses at a value. A missing root means "no configuration".
 
 use libnetd::NETWORK_KEY;
+pub use libnetd::raw::{RawKey, RawValue};
 use peios::registry::{Key, KeyAccess, OpenFlags, RegValue, ValueType};
 
 use crate::log;
-
-/// A registry value, lowered.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RawValue {
-    Int(i64),
-    Str(String),
-    List(Vec<String>),
-    /// A type the vocabulary has no use for (binary, none). Kept so the
-    /// builder can refuse it by name rather than silently drop it.
-    Other,
-}
-
-/// A registry key, lowered: its name, values and subkeys.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawKey {
-    pub name: String,
-    pub values: Vec<(String, RawValue)>,
-    pub children: Vec<RawKey>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
