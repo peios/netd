@@ -178,6 +178,13 @@ pub struct LeaseStatus {
     pub server: String,
     pub expires_in: u64,
     pub state: String,
+    /// The lease's whole length, in seconds; 0 from a netd that does not
+    /// say. `duration - expires_in` is how long ago it was bound.
+    pub duration: u64,
+    /// When the client starts renewing with its server (T1), and when it
+    /// asks any server (T2), in seconds after the lease was bound.
+    pub renew_at: u64,
+    pub rebind_at: u64,
 }
 
 /// One interface as reported.
@@ -433,10 +440,13 @@ fn encode_interface(w: &mut Writer, i: &InterfaceStatus) {
             w.write_nil();
         }
         Some(l) => {
-            w.write_map(3);
+            w.write_map(6);
             w.write_str("server").write_str(&l.server);
             w.write_str("expires_in").write_uint(l.expires_in);
             w.write_str("state").write_str(&l.state);
+            w.write_str("duration").write_uint(l.duration);
+            w.write_str("renew_at").write_uint(l.renew_at);
+            w.write_str("rebind_at").write_uint(l.rebind_at);
         }
     }
 }
@@ -526,6 +536,9 @@ fn decode_interface(r: &mut Reader<'_>) -> Result<InterfaceStatus, WireError> {
                             "server" => l.server = r.read_str()?.to_owned(),
                             "expires_in" => l.expires_in = r.read_uint()?,
                             "state" => l.state = r.read_str()?.to_owned(),
+                            "duration" => l.duration = r.read_uint()?,
+                            "renew_at" => l.renew_at = r.read_uint()?,
+                            "rebind_at" => l.rebind_at = r.read_uint()?,
                             _ => r.skip()?,
                         }
                         Ok(())
@@ -679,6 +692,9 @@ mod tests {
                     server: "10.0.2.2".into(),
                     expires_in: 86000,
                     state: "bound".into(),
+                    duration: 86400,
+                    renew_at: 43200,
+                    rebind_at: 75600,
                 }),
             }],
         };

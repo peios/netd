@@ -942,6 +942,9 @@ impl Netd {
                         server: l.server.to_string(),
                         expires_in: d.client.expires_in(now).unwrap_or(0),
                         state: d.client.state().as_str().to_owned(),
+                        duration: u64::from(l.lease_time),
+                        renew_at: u64::from(l.t1),
+                        rebind_at: u64::from(l.t2),
                     })
                 }),
             });
