@@ -14,8 +14,6 @@ mod log;
 mod model;
 mod netlink;
 mod networks;
-mod policy;
-mod profile;
 mod reconcile;
 
 use std::collections::BTreeMap;
@@ -27,14 +25,14 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use dhcp4::{Action, Client, Config as DhcpConfig, Lease};
+use libnetd::policy::{self, Judgment, Outcome, Policy};
+use libnetd::profile::{OnExpiry, Profile};
 use libnetd::{DnsScope, InterfaceStatus, LeaseStatus, Level, Reply, Request, Snapshot, Status};
 use peios::registry::Key;
 
 use config::Config;
 use model::{Identity, Link, LinkKind, Observed, is_v6_link_local};
 use netlink::{LinuxRtnl, Rtnl};
-use policy::{Judgment, Outcome, Policy};
-use profile::{OnExpiry, Profile};
 use reconcile::Desired;
 
 /// One managed (or at least seen) interface.

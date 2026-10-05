@@ -12,7 +12,7 @@ name = "netd"
 path = "src/main.rs"
 
 [dependencies]
-libnetd = { path = "../libnetd" }
+libnetd = { path = "../libnetd", features = ["policy"] }
 dhcp4 = { path = "../dhcp4" }
 libc = { workspace = true }
 peios = { workspace = true }
@@ -24,10 +24,9 @@ netlink-sys = "0.9"
 # Interface identity: a UUID-shaped digest of bus path and MAC. Same choice
 # authd made for service SIDs; pure computation.
 sha1 = "0.10"
-# The interface layer is a PNP rules forest; netd builds and judges it with
-# the kernel's own rules engine so the two cannot disagree about a rule.
-# Pin the exact rules engine revision netd was validated against. The package
-# build vendors this source, so a build never consults a sibling PKM checkout.
-pnp-core = { git = "https://github.com/peios/pkm.git", rev = "9c1d56c7ddf1d75356173815f973bf3b6329e00f" }
+# The interface layer is a PNP rules forest, built and judged by libnetd's
+# `policy`; netd makes the fact snapshot it is judged on. The revision is
+# the workspace's.
+pnp-core = { workspace = true }
 ndp = { version = "0.1.1", path = "../ndp" }
 dhcp6 = { version = "0.1.1", path = "../dhcp6" }

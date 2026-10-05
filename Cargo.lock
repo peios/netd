@@ -167,6 +167,7 @@ name = "libnetd"
 version = "0.1.7"
 dependencies = [
  "peios",
+ "pnp-core",
 ]
 
 [[package]]

@@ -1,11 +1,18 @@
 [package]
 name = "libnetd"
-description = "netd's control wire — paths, readiness levels and the query codec."
+description = "netd's control wire — paths, readiness levels and the query codec — and the laws of its configuration."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# The interface layer as netd builds and judges it, with PNP's rules engine.
+# A feature so that a client of the wire alone (resolvd) does not build the
+# engine.
+policy = ["dep:pnp-core"]
+
 [dependencies]
 peios = { workspace = true }
+pnp-core = { workspace = true, optional = true }
