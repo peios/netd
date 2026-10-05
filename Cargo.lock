@@ -289,7 +289,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pnp-core"
 version = "0.1.0"
-source = "git+https://github.com/peios/pkm.git?rev=9c1d56c7ddf1d75356173815f973bf3b6329e00f#9c1d56c7ddf1d75356173815f973bf3b6329e00f"
+source = "git+https://github.com/peios/pkm.git?rev=17712f8fbf4889696c1c919f17409bc15f16efa0#17712f8fbf4889696c1c919f17409bc15f16efa0"
 
 [[package]]
 name = "prettyplease"
