@@ -171,19 +171,29 @@ impl ControlObject {
         .check()
         .map(|d| d.allowed)
         .unwrap_or(false);
-        // A token whose user cannot be read is still the token the check
-        // admitted; the record then goes without a subject.
-        allowed.then(|| Caller {
-            sid: token.user().ok(),
-        })
+        if !allowed {
+            return None;
+        }
+        // What netd does for the peer is recorded as the peer's (PGSS
+        // §6.4), so a peer whose user cannot be read is refused rather than
+        // served anonymously.
+        match token.user() {
+            Ok(sid) => Some(Caller { sid }),
+            Err(e) => {
+                log::warn(format_args!(
+                    "control: cannot read the user of a peer's token ({e}); refusing"
+                ));
+                None
+            }
+        }
     }
 }
 
 /// A peer the control object admitted.
 #[derive(Debug, Clone, Copy)]
 pub struct Caller {
-    /// The user SID of the peer's token, if it could be read.
-    pub sid: Option<Sid>,
+    /// The user SID of the peer's token.
+    pub sid: Sid,
 }
 
 /// Read one request, or answer with an error and return `None`.

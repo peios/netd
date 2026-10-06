@@ -358,7 +358,8 @@ struct Netd {
     hostname_set: Option<String>,
     /// The control client whose `reconcile` request is being carried out,
     /// set only for the length of that pass: a hostname change it makes is
-    /// recorded with the client as `subject.token.sid`.
+    /// recorded with the client as `subject.token.sid`. Otherwise netd
+    /// acts on its own authority and the record names netd.
     acting_for: Option<peios::security::Sid>,
     /// `subscribe` connections, each owed a snapshot whenever it changes.
     subscribers: Vec<UnixStream>,
@@ -1005,7 +1006,7 @@ impl Netd {
                 Request::Reconcile => {
                     // The pass is the caller's, so a name it changes is
                     // recorded as theirs.
-                    self.acting_for = caller.sid;
+                    self.acting_for = Some(caller.sid);
                     self.converge(now);
                     self.acting_for = None;
                     Reply::Ok
