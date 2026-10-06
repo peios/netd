@@ -25,6 +25,9 @@ license     = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-
 ":usr/share/regim/netd-service.reg"              = "usr/share/regim/netd-service.reg"
 ":usr/share/regim/netd-default-profile.reg"      = "usr/share/regim/netd-default-profile.reg"
 ":usr/share/regman/netd.regman"                  = "usr/share/regman/netd.regman"
+# The event manual for the event netd writes, netd.hostname.changed (PGSS
+# §6.10).
+"@source:netd.evman"                             = "usr/share/evman/netd.evman"
 ":usr/share/man/man8/netd.8.gz"                  = "usr/share/man/man8/netd.8.gz"
 ":var/state/netd"                                = "var/state/netd"
 

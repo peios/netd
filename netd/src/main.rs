@@ -5,6 +5,7 @@
 //! any of them the loop re-derives what the network should be and reconciles
 //! the kernel to it; nothing is done imperatively in a handler.
 
+mod audit;
 mod config;
 mod control;
 mod dhcp;
@@ -355,6 +356,10 @@ struct Netd {
     /// The RFC 7217 secret, read (or minted) when first needed.
     v6_secret: Option<[u8; 32]>,
     hostname_set: Option<String>,
+    /// The control client whose `reconcile` request is being carried out,
+    /// set only for the length of that pass: a hostname change it makes is
+    /// recorded with the client as `subject.token.sid`.
+    acting_for: Option<peios::security::Sid>,
     /// `subscribe` connections, each owed a snapshot whenever it changes.
     subscribers: Vec<UnixStream>,
     last_snapshot: Option<Snapshot>,
@@ -724,6 +729,9 @@ impl Netd {
         if self.hostname_set.as_deref() == Some(name.as_str()) {
             return;
         }
+        // Read for the record only: the decision to call sethostname is
+        // still against the name netd last set, not the kernel's.
+        let previous = audit::kernel_hostname();
         // SAFETY: the buffer is live for the call and the length is its own.
         let rc = unsafe { libc::sethostname(name.as_ptr().cast(), name.len()) };
         if rc < 0 {
@@ -733,6 +741,11 @@ impl Netd {
             ));
         } else {
             log::info(format_args!("hostname is {name}"));
+            // Setting the name the kernel already has (netd restarted, say)
+            // changes nothing, and is not recorded.
+            if previous.as_deref() != Some(name.as_str()) {
+                audit::hostname_changed(&name, previous.as_deref(), self.acting_for.as_ref());
+            }
             self.hostname_set = Some(name);
         }
     }
@@ -970,10 +983,10 @@ impl Netd {
             let Some(request) = control::read_request(&mut stream) else {
                 continue;
             };
-            if !self.control.permits(&stream, request.required_right()) {
+            let Some(caller) = self.control.permits(&stream, request.required_right()) else {
                 control::respond(&mut stream, &Reply::Error("access denied".into()));
                 continue;
-            }
+            };
             let now = Instant::now();
             let reply = match request {
                 Request::Status => Reply::Status(self.status()),
@@ -990,7 +1003,11 @@ impl Netd {
                     continue;
                 }
                 Request::Reconcile => {
+                    // The pass is the caller's, so a name it changes is
+                    // recorded as theirs.
+                    self.acting_for = caller.sid;
                     self.converge(now);
+                    self.acting_for = None;
                     Reply::Ok
                 }
                 Request::Renew { interface } => {
@@ -1275,6 +1292,7 @@ fn main() -> ExitCode {
         duid: None,
         v6_secret: None,
         hostname_set: None,
+        acting_for: None,
         subscribers: Vec::new(),
         last_snapshot: None,
         last_level: None,
