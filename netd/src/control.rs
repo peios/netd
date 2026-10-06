@@ -151,16 +151,18 @@ impl ControlObject {
         )
     }
 
-    /// Whether the peer holds `right`.
-    pub fn permits(&self, stream: &UnixStream, right: u32) -> bool {
+    /// Whether the peer holds `right`: `Some` if it does, carrying who it
+    /// is, so that a change netd makes on its behalf can name it in the
+    /// record (`netd.hostname.changed`'s `subject.token.sid`).
+    pub fn permits(&self, stream: &UnixStream, right: u32) -> Option<Caller> {
         let token = match Token::open_peer(stream.as_fd()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn(format_args!("control: no peer token: {e}"));
-                return false;
+                return None;
             }
         };
-        AccessCheck::new(
+        let allowed = AccessCheck::new(
             &self.sd,
             AccessMask::from_bits_retain(right),
             Self::mapping(),
@@ -168,8 +170,20 @@ impl ControlObject {
         .token(token.as_fd())
         .check()
         .map(|d| d.allowed)
-        .unwrap_or(false)
+        .unwrap_or(false);
+        // A token whose user cannot be read is still the token the check
+        // admitted; the record then goes without a subject.
+        allowed.then(|| Caller {
+            sid: token.user().ok(),
+        })
     }
+}
+
+/// A peer the control object admitted.
+#[derive(Debug, Clone, Copy)]
+pub struct Caller {
+    /// The user SID of the peer's token, if it could be read.
+    pub sid: Option<Sid>,
 }
 
 /// Read one request, or answer with an error and return `None`.

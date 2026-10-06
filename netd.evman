@@ -1,0 +1,29 @@
+--- event netd.hostname.changed
+tier: essential
+gating: none — every change netd makes to the kernel's hostname is recorded
+
+netd changed the machine's hostname. The name is what other machines, log
+lines and certificate requests know the machine by, so a change of it is
+always recorded.
+
+netd takes the name from `Machine\System\Network Hostname`, or else from a
+lease that offers one where the interface's profile accepts it, and
+passes it to the kernel. A call that leaves the kernel's name as it was,
+as when netd restarts on a machine that already has the name, records
+nothing. A name the kernel refuses is not a change and is not recorded.
+
+field: config.name                      required
+  Always `Hostname`, the setting the name is held in, whether the value in
+  force came from the registry or from a lease.
+field: config.text                      required
+  The name now in force, as netd passed it to the kernel.
+field: config.text-previous             optional
+  The kernel's name just before the change, as the kernel held it. On the
+  first change after boot this is the kernel's own `(none)`. Absent when it
+  could not be read.
+field: subject.token.sid                optional
+  The user of the token whose `reconcile` request on netd's control socket
+  made the pass that changed the name. Absent when netd changed it on its
+  own account: after the registry value changed, when a lease arrived, and
+  at startup. Who wrote the registry value is LCS's to record, where the
+  key's SACL audits the write.
