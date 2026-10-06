@@ -29,7 +29,7 @@ publish = false
 
 [workspace.dependencies]
 libc = "0.2"
-peios = { git = "https://github.com/peios/peios-rs.git", rev = "02c87cb643c30eef6b74cd1d9d8b0ae067bed69a", package = "peios" }
+peios = { git = "https://github.com/peios/peios-rs.git", rev = "f8c84930f2b71763bcf0550df0b1420a0f63b21e", package = "peios" }
 # The interface layer is a PNP rules forest; netd builds and judges it with
 # the kernel's own rules engine so the two cannot disagree about a rule.
 # Pin the revision of the kernel netd runs beside (pkm v0.21.0-alpha8): the

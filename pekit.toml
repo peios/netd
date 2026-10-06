@@ -14,7 +14,7 @@ set -eu
 export CARGO_HOME=/tmp/cargo-netd-vendor
 mkdir -p "$CARGO_HOME" "$PEKIT_OUT"
 
-PEIOS_RS_REV=02c87cb643c30eef6b74cd1d9d8b0ae067bed69a
+PEIOS_RS_REV=f8c84930f2b71763bcf0550df0b1420a0f63b21e
 PKM_REV=17712f8fbf4889696c1c919f17409bc15f16efa0
 grep -F "peios-rs.git?rev=$PEIOS_RS_REV#$PEIOS_RS_REV" Cargo.lock >/dev/null
 grep -F "pkm.git?rev=$PKM_REV#$PKM_REV" Cargo.lock >/dev/null
@@ -55,8 +55,8 @@ done
 # headers. Sibling libpeios, peios-rs, and PKM checkouts are never consulted.
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
 # A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
-pkg-config --atleast-version=0.5.0 peios || {
-  echo "netd: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
+pkg-config --atleast-version=0.5.8 peios || {
+  echo "netd: dev.peios.libpeios-devel >= 0.5.8 (ABI 0) is required" >&2
   exit 1
 }
 readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
@@ -203,7 +203,7 @@ test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
 # Bindgen uses the libclang C API, supported from LLVM 22.1.8.
 "org.llvm.clang-devel"     = ">= 22.1.8"
 "org.pkgconf.pkgconf"      = "*"
-"dev.peios.libpeios-devel" = ">= 0.5.0"
+"dev.peios.libpeios-devel" = ">= 0.5.8"
 "dev.peios.packaging-tools" = "*"
 
 [test]
@@ -216,8 +216,8 @@ mkdir -p "$CARGO_HOME"
 cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
 # A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
-pkg-config --atleast-version=0.5.0 peios || {
-  echo "netd: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
+pkg-config --atleast-version=0.5.8 peios || {
+  echo "netd: dev.peios.libpeios-devel >= 0.5.8 (ABI 0) is required" >&2
   exit 1
 }
 readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
@@ -345,4 +345,4 @@ done
 # Bindgen uses the libclang C API, supported from LLVM 22.1.8.
 "org.llvm.clang-devel"     = ">= 22.1.8"
 "org.pkgconf.pkgconf"      = "*"
-"dev.peios.libpeios-devel" = ">= 0.5.0"
+"dev.peios.libpeios-devel" = ">= 0.5.8"
