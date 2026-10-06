@@ -123,6 +123,13 @@ pub struct Engine {
     /// alone changes the view — a deprecation is a transition even though
     /// no packet arrived.
     last_view: View,
+    /// When lifetimes were last applied. A preferred deadline at or
+    /// before it has had its effect — the address is deprecated in the
+    /// view already emitted — but stays in the state until the valid
+    /// lifetime ends, so [`Engine::next_deadline`] must not offer it
+    /// again: a deadline in the past is a poll timeout of zero, and the
+    /// caller would spin until the address went (PEI-1367).
+    expired_at: Option<Instant>,
 }
 
 impl Engine {
@@ -141,6 +148,7 @@ impl Engine {
             mtu: None,
             dhcp6_wanted: false,
             last_view: View::default(),
+            expired_at: None,
         }
     }
 
@@ -271,6 +279,7 @@ impl Engine {
     }
 
     fn expire(&mut self, now: Instant) {
+        self.expired_at = Some(now);
         self.routers.retain(|_, expires| *expires > now);
         // Routers all gone: go back to soliciting (RFC 7559 keeps a host
         // looking, else a rebooted router is never found).
@@ -284,13 +293,13 @@ impl Engine {
         self.prefixes
             .retain(|_, p| p.valid_until.is_none_or(|e| e > now));
         // Temporary addresses: drop the invalid, regenerate when the newest
-        // has gone deprecated while the prefix itself is still preferred.
+        // has gone deprecated while the prefix itself is still preferred,
+        // and only then cut each list to its newest MAX_TEMPS. Cut before
+        // the regenerated one is added and a prefix holds one too many
+        // until its next deadline, which can be a day away.
         let mut regenerate = Vec::new();
         for (key, p) in &mut self.prefixes {
             p.temps.retain(|t| t.valid_until > now);
-            if p.temps.len() > MAX_TEMPS {
-                p.temps.drain(..p.temps.len() - MAX_TEMPS);
-            }
             let prefix_preferred = p.preferred_until.is_none_or(|e| e > now);
             let newest_preferred = p.temps.last().is_some_and(|t| t.preferred_until > now);
             if self.config.temporary && prefix_preferred && !newest_preferred {
@@ -306,6 +315,11 @@ impl Engine {
                 .temps
                 .push(temp);
         }
+        for p in self.prefixes.values_mut() {
+            if p.temps.len() > MAX_TEMPS {
+                p.temps.drain(..p.temps.len() - MAX_TEMPS);
+            }
+        }
     }
 
     /// When [`Engine::tick`] next wants calling.
@@ -316,14 +330,17 @@ impl Engine {
                 deadline = Some(deadline.map_or(t, |d| d.min(t)));
             }
         };
+        // A preferred lifetime that ended by the last expire has already
+        // deprecated its address; only one still to come is a deadline.
+        let pending = |t: Option<Instant>| t.filter(|t| self.expired_at.is_none_or(|e| *t > e));
         for expires in self.routers.values() {
             consider(Some(*expires));
         }
         for p in self.prefixes.values() {
             consider(p.valid_until);
-            consider(p.preferred_until);
+            consider(pending(p.preferred_until));
             for t in &p.temps {
-                consider(Some(t.preferred_until));
+                consider(pending(Some(t.preferred_until)));
                 consider(Some(t.valid_until));
             }
         }
@@ -678,6 +695,64 @@ mod tests {
         let later = t0 + TEMP_VALID + Duration::from_secs(1);
         e.tick(later);
         assert!(e.addresses(later).iter().all(|a| a.address != temp.address));
+    }
+
+    #[test]
+    fn a_deprecated_address_is_not_a_deadline() {
+        // PEI-1367: the passed preferred lifetime stays in the state until
+        // the valid one ends; offered as a deadline it is a poll timeout
+        // of zero, and netd spun a core for as long as it lasted.
+        let mut e = Engine::new(config());
+        let t0 = Instant::now();
+        e.receive(t0, router(), &advert("fd00::", 9000, 600, 1800));
+        let after_preferred = t0 + Duration::from_secs(601);
+        e.tick(after_preferred);
+        assert!(e.addresses(after_preferred)[0].deprecated);
+        let next = e.next_deadline().unwrap();
+        assert!(next > after_preferred, "a deadline still to come");
+        assert_eq!(
+            next,
+            t0 + Duration::from_secs(1800),
+            "the router's lifetime is next"
+        );
+    }
+
+    #[test]
+    fn a_deprecated_temporary_is_not_a_deadline() {
+        let mut e = Engine::new(Config {
+            temporary: true,
+            ..config()
+        });
+        let t0 = Instant::now();
+        e.receive(t0, router(), &advert("fd00::", u32::MAX, u32::MAX, 0));
+        let next_day = t0 + TEMP_PREFERRED;
+        e.tick(next_day);
+        assert!(e.addresses(next_day).iter().any(|a| a.deprecated));
+        let next = e.next_deadline().unwrap();
+        assert!(next > next_day, "a deadline still to come");
+    }
+
+    #[test]
+    fn a_prefix_never_holds_more_than_four_temporaries() {
+        // Each advertisement that renews a prefix whose newest temporary
+        // has lapsed regenerates one. The list is cut after the new one
+        // is added, so no moment holds five — not even one the caller
+        // sees before the next deadline.
+        let mut e = Engine::new(Config {
+            temporary: true,
+            ..config()
+        });
+        let temps = |e: &Engine, now: Instant| e.addresses(now).len() - 1;
+        let mut now = Instant::now();
+        let mut most = 0;
+        for preferred in [3, 3, 3, 3, 3, 3, 30] {
+            e.receive(now, router(), &advert("fd00::", 600, preferred, 1800));
+            most = most.max(temps(&e, now));
+            now += Duration::from_secs(4);
+            e.tick(now);
+            most = most.max(temps(&e, now));
+        }
+        assert_eq!(most, MAX_TEMPS);
     }
 
     #[test]
