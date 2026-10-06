@@ -6,8 +6,11 @@
 //! SYSTEM, whose token carries `SeAuditPrivilege`. A record that cannot be
 //! written is a warning in the log; the name has already changed.
 
+use std::sync::OnceLock;
+
 use peios::msgpack::Writer;
 use peios::security::Sid;
+use peios::token::{Token, TokenAccess};
 
 use crate::log;
 
@@ -24,8 +27,10 @@ pub fn kernel_hostname() -> Option<String> {
 /// The payload of a `netd.hostname.changed` record.
 ///
 /// `previous` is the kernel's name just before netd set `name`, and is left
-/// out when it could not be read. `subject` is the binary SID of a control
-/// client whose request made the pass that changed the name.
+/// out when it could not be read. `subject` is the binary SID of the
+/// principal that acted (PGSS §6.4): a control client whose request made
+/// the pass that changed the name, or netd's own user. It is left out only
+/// if that SID could not be read.
 pub fn hostname_changed_payload(
     name: &str,
     previous: Option<&str>,
@@ -53,10 +58,35 @@ pub fn hostname_changed_payload(
     w.to_bytes()
 }
 
+/// The user SID of netd's own token, read once: the subject of every change
+/// netd makes on its own authority. `None`, with an error logged once, if
+/// it cannot be read.
+pub fn own_sid() -> Option<&'static Sid> {
+    static OWN: OnceLock<Option<Sid>> = OnceLock::new();
+    OWN.get_or_init(
+        || match Token::open_self(true, TokenAccess::QUERY).and_then(|t| t.user()) {
+            Ok(sid) => Some(sid),
+            Err(e) => {
+                log::error(format_args!(
+                    "could not read netd's own identity ({e}); hostname changes are \
+                     recorded without a subject"
+                ));
+                None
+            }
+        },
+    )
+    .as_ref()
+}
+
 /// Write a `netd.hostname.changed` record, logging rather than returning a
-/// failure.
-pub fn hostname_changed(name: &str, previous: Option<&str>, subject: Option<&Sid>) {
-    let result = hostname_changed_payload(name, previous, subject.map(|s| s.as_bytes()))
+/// failure. `caller` is the control client whose request made the pass;
+/// `None` means netd acted on its own authority, and the record names netd.
+pub fn hostname_changed(name: &str, previous: Option<&str>, caller: Option<&Sid>) {
+    let subject = match caller {
+        Some(sid) => Some(sid.as_bytes()),
+        None => own_sid().map(|sid| sid.as_bytes()),
+    };
+    let result = hostname_changed_payload(name, previous, subject)
         .and_then(|payload| peios::event::emit(HOSTNAME_CHANGED, &payload));
     if let Err(e) = result {
         log::warn(format_args!(
@@ -115,13 +145,21 @@ mod tests {
     }
 
     #[test]
-    fn a_change_names_the_setting_and_both_values() {
-        let bytes = hostname_changed_payload("ws-01", Some("(none)"), None).unwrap();
+    fn a_change_names_the_setting_both_values_and_who_acted() {
+        // netd's own user, SYSTEM, for a change it made itself.
+        let own = [1u8, 1, 0, 0, 0, 0, 0, 5, 18, 0, 0, 0];
+        let bytes = hostname_changed_payload("ws-01", Some("(none)"), Some(&own)).unwrap();
         let v = parse(&bytes);
         assert_eq!(at(&v, "config.name"), Some(&s("Hostname")));
         assert_eq!(at(&v, "config.text"), Some(&s("ws-01")));
         assert_eq!(at(&v, "config.text-previous"), Some(&s("(none)")));
-        assert_eq!(at(&v, "subject"), None);
+        assert_eq!(at(&v, "subject.token.sid"), Some(&V::Bin(own.to_vec())));
+    }
+
+    #[test]
+    fn a_subject_that_could_not_be_read_is_left_out_rather_than_written_empty() {
+        let bytes = hostname_changed_payload("ws-03", None, None).unwrap();
+        assert_eq!(at(&parse(&bytes), "subject"), None);
     }
 
     #[test]

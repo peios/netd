@@ -21,9 +21,11 @@ field: config.text-previous             optional
   The kernel's name just before the change, as the kernel held it. On the
   first change after boot this is the kernel's own `(none)`. Absent when it
   could not be read.
-field: subject.token.sid                optional
-  The user of the token whose `reconcile` request on netd's control socket
-  made the pass that changed the name. Absent when netd changed it on its
-  own account: after the registry value changed, when a lease arrived, and
-  at startup. Who wrote the registry value is LCS's to record, where the
+field: subject.token.sid                required
+  The principal that acted. When the change was made during the pass a
+  `reconcile` request on netd's control socket asked for, the user of the
+  requester's token; netd refuses a request whose user it cannot read.
+  Otherwise netd changed the name on its own authority, after the registry
+  value changed, when a lease arrived or at startup, and this is netd's own
+  user, SYSTEM. Who wrote the registry value is LCS's to record, where the
   key's SACL audits the write.
