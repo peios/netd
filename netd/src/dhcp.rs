@@ -143,7 +143,7 @@ impl PacketSocket {
     }
 }
 
-/// Classic BPF for "udp dst port 68" on a cooked IPv4 packet.
+/// Classic BPF for unfragmented UDP to port 68 on a cooked IPv4 packet.
 fn attach_filter(fd: BorrowedFd<'_>) -> io::Result<()> {
     #[repr(C)]
     struct SockFilter {
@@ -163,8 +163,8 @@ fn attach_filter(fd: BorrowedFd<'_>) -> io::Result<()> {
     let program = [
         op(0x30, 0, 0, 9),      // ldb [9]            protocol
         op(0x15, 0, 6, 17),     // jeq #17 (udp)      else fail
-        op(0x28, 0, 0, 6),      // ldh [6]            fragment offset
-        op(0x45, 4, 0, 0x1fff), // jset #0x1fff       fragment -> fail
+        op(0x28, 0, 0, 6),      // ldh [6]            flags and fragment offset
+        op(0x45, 4, 0, 0x3fff), // jset #0x3fff       MF or offset -> fail; DF allowed
         op(0xb1, 0, 0, 0),      // ldxb 4*([0]&0xf)   ihl
         op(0x48, 0, 0, 2),      // ldh [x+2]          udp dst port
         op(0x15, 0, 1, 68),     // jeq #68            else fail
