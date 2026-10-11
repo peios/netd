@@ -295,31 +295,11 @@ impl Lease {
             .filter(|m| *m != 0 && (m | (m - 1)) == u32::MAX)
             .map(|m| m.count_ones() as u8)
             .unwrap_or_else(|| classful_prefix(address));
-        let mut static_routes = Vec::new();
-        if let Some(v) = o.get(option::CLASSLESS_STATIC_ROUTE) {
-            let mut i = 0;
-            while i < v.len() {
-                let prefix = v[i];
-                i += 1;
-                // RFC 3442: 0..=32. A larger byte is a malformed option, and
-                // the whole option is discarded rather than guessed at.
-                if prefix > 32 {
-                    return None;
-                }
-                let octets = (prefix as usize).div_ceil(8);
-                let mut dst = [0u8; 4];
-                let d = v.get(i..i + octets)?;
-                dst[..octets].copy_from_slice(d);
-                i += octets;
-                let gw = v.get(i..i + 4)?;
-                i += 4;
-                static_routes.push(StaticRoute {
-                    destination: Ipv4Addr::from(dst),
-                    prefix,
-                    gateway: Ipv4Addr::new(gw[0], gw[1], gw[2], gw[3]),
-                });
-            }
-        }
+        // A malformed optional route list does not invalidate the lease.
+        let static_routes = o
+            .get(option::CLASSLESS_STATIC_ROUTE)
+            .and_then(decode_classless_routes)
+            .unwrap_or_default();
         // RFC 3442: when classless routes are present, option 3 is ignored.
         let routers = if static_routes.is_empty() {
             o.ipv4_list(option::ROUTER)
@@ -370,6 +350,33 @@ impl Lease {
                 .map(|r| r.gateway)
         })
     }
+}
+
+/// Decode the complete optional route list, or discard all of it.
+fn decode_classless_routes(v: &[u8]) -> Option<Vec<StaticRoute>> {
+    let mut routes = Vec::new();
+    let mut i = 0;
+    while i < v.len() {
+        let prefix = v[i];
+        i += 1;
+        // RFC 3442 destination widths are 0..=32.
+        if prefix > 32 {
+            return None;
+        }
+        let octets = (prefix as usize).div_ceil(8);
+        let mut dst = [0u8; 4];
+        let d = v.get(i..i + octets)?;
+        dst[..octets].copy_from_slice(d);
+        i += octets;
+        let gw = v.get(i..i + 4)?;
+        i += 4;
+        routes.push(StaticRoute {
+            destination: Ipv4Addr::from(dst),
+            prefix,
+            gateway: Ipv4Addr::new(gw[0], gw[1], gw[2], gw[3]),
+        });
+    }
+    Some(routes)
 }
 
 fn classful_prefix(a: Ipv4Addr) -> u8 {
@@ -488,6 +495,106 @@ mod tests {
         assert_eq!(l.static_routes.len(), 2);
         assert_eq!(l.static_routes[0].destination, Ipv4Addr::new(10, 1, 0, 0));
         assert_eq!(l.gateway(), Some(Ipv4Addr::new(10, 0, 2, 7)));
+    }
+
+    #[test]
+    fn malformed_classless_routes_are_discarded_without_losing_the_lease() {
+        let expected = Lease::from_ack(&ack()).unwrap();
+        for routes in [
+            vec![33],                  // invalid width
+            vec![255, 10, 0, 2, 9],    // invalid width with trailing bytes
+            vec![16, 10],              // incomplete destination
+            vec![0],                   // missing gateway
+            vec![16, 10, 1, 10, 0, 2], // incomplete gateway
+        ] {
+            let mut m = ack();
+            m.options.push(option::CLASSLESS_STATIC_ROUTE, routes);
+            // The option TLV is complete even though its route data is not.
+            let decoded = Message::decode(&m.encode()).unwrap();
+            assert_eq!(Lease::from_ack(&decoded), Some(expected.clone()));
+        }
+    }
+
+    #[test]
+    fn a_malformed_tail_discards_even_preceding_valid_classless_routes() {
+        let expected = Lease::from_ack(&ack()).unwrap();
+        for tail in [vec![33], vec![32, 10], vec![0, 10, 0]] {
+            let mut routes = vec![0, 10, 0, 2, 9, 16, 10, 1, 10, 0, 2, 8];
+            routes.extend(tail);
+            let mut m = ack();
+            m.options.push(option::CLASSLESS_STATIC_ROUTE, routes);
+            assert_eq!(Lease::from_ack(&m), Some(expected.clone()));
+        }
+    }
+
+    #[test]
+    fn malformed_classless_routes_without_option_three_have_no_gateway() {
+        let mut m = ack();
+        m.options.0.retain(|(code, _)| *code != option::ROUTER);
+        let expected = Lease::from_ack(&m).unwrap();
+        m.options.push(option::CLASSLESS_STATIC_ROUTE, vec![33]);
+        let lease = Lease::from_ack(&m).unwrap();
+        assert_eq!(lease, expected);
+        assert!(lease.static_routes.is_empty());
+        assert!(lease.routers.is_empty());
+        assert_eq!(lease.gateway(), None);
+    }
+
+    #[test]
+    fn valid_classless_host_routes_still_suppress_option_three() {
+        let mut m = ack();
+        m.options.push(
+            option::CLASSLESS_STATIC_ROUTE,
+            vec![32, 10, 1, 2, 3, 10, 0, 2, 9],
+        );
+        let lease = Lease::from_ack(&m).unwrap();
+        assert!(lease.routers.is_empty());
+        assert_eq!(lease.gateway(), None);
+        assert_eq!(
+            lease.static_routes,
+            vec![StaticRoute {
+                destination: Ipv4Addr::new(10, 1, 2, 3),
+                prefix: 32,
+                gateway: Ipv4Addr::new(10, 0, 2, 9),
+            }]
+        );
+    }
+
+    #[test]
+    fn malformed_optional_routes_do_not_relax_mandatory_lease_fields() {
+        let mut m = ack();
+        m.options.push(option::CLASSLESS_STATIC_ROUTE, vec![33]);
+        for code in [option::SERVER_ID, option::LEASE_TIME] {
+            let mut missing = m.clone();
+            missing.options.0.retain(|(c, _)| *c != code);
+            assert!(Lease::from_ack(&missing).is_none());
+            for len in 0..4 {
+                let mut short = missing.clone();
+                short.options.push(code, vec![1; len]);
+                assert!(Lease::from_ack(&short).is_none());
+            }
+        }
+        for seconds in 0u32..4 {
+            let mut short = m.clone();
+            short.options.0.retain(|(c, _)| *c != option::LEASE_TIME);
+            short
+                .options
+                .push(option::LEASE_TIME, seconds.to_be_bytes());
+            assert!(Lease::from_ack(&short).is_none());
+        }
+        m.yiaddr = Ipv4Addr::UNSPECIFIED;
+        assert!(Lease::from_ack(&m).is_none());
+    }
+
+    #[test]
+    fn a_truncated_classless_option_tlv_still_rejects_the_message() {
+        // Keep a valid fixed header/cookie; the declared option payload
+        // extends beyond the packet, unlike malformed contents of a full TLV.
+        let mut bytes = ack().encode()[..FIXED_LEN + 4].to_vec();
+        bytes.extend([option::CLASSLESS_STATIC_ROUTE, 5, 0, 10, 0]);
+        assert!(Message::decode(&bytes).is_none());
+        bytes.truncate(FIXED_LEN + 5); // the length byte is missing too
+        assert!(Message::decode(&bytes).is_none());
     }
 
     #[test]
