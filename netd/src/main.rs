@@ -50,9 +50,8 @@ struct Interface {
     /// A lease arrived or the routers spoke since the last convergence:
     /// the network may now be identifiable, so judge again.
     rejudge: bool,
-    /// Something the operator should see beside the state: discovery
-    /// unanswered, a rule conflict.
-    warning: Option<String>,
+    /// Discovery went unanswered for this DHCP client; cleared on bind or stop.
+    discovery_unanswered: bool,
     dhcp: Option<Dhcp>,
     lease: Option<Lease>,
     /// Set once discovery has gone unanswered; cleared on a lease.
@@ -409,7 +408,7 @@ impl Netd {
                     judgment: Judgment::default(),
                     network: None,
                     rejudge: false,
-                    warning: None,
+                    discovery_unanswered: false,
                     dhcp: None,
                     lease: None,
                     link_local: None,
@@ -455,9 +454,6 @@ impl Netd {
                 interface.stop_dhcp(now);
                 interface.stop_ipv6();
             }
-            interface.warning = judgment
-                .conflict
-                .then(|| format!("rules {} tie; the interface is ignored", judgment.rule));
             interface.judgment = judgment;
             let readiness = interface.managed().then(|| interface.level(&self.observed));
             inventory::sync(&inventory::InterfaceRecord {
@@ -932,7 +928,7 @@ impl Netd {
                 network: i.network.as_ref().map(|n| n.id.clone()),
                 network_name: i.network.as_ref().and_then(|n| n.name.clone()),
                 network_trust: i.network.as_ref().and_then(|n| n.trust.clone()),
-                warning: i.warning.clone(),
+                warning: i.warning(),
                 up: i.link.up,
                 carrier: i.link.carrier,
                 level: l,
@@ -1043,6 +1039,18 @@ impl Netd {
 }
 
 impl Interface {
+    fn warning(&self) -> Option<String> {
+        if self.judgment.conflict {
+            Some(format!(
+                "rules {} tie; the interface is ignored",
+                self.judgment.rule
+            ))
+        } else {
+            self.discovery_unanswered
+                .then(|| "asked for an address; nobody answered".into())
+        }
+    }
+
     fn stop_dhcp(&mut self, now: Instant) {
         if let Some(mut d) = self.dhcp.take() {
             let actions = d.client.release(now);
@@ -1058,6 +1066,7 @@ impl Interface {
         }
         self.lease = None;
         self.link_local = None;
+        self.discovery_unanswered = false;
     }
 
     /// Stop router discovery and DHCPv6. Nothing to say on the wire —
@@ -1136,16 +1145,14 @@ impl Interface {
                     ));
                     self.lease = Some(lease);
                     self.link_local = None;
-                    self.warning = None;
+                    self.discovery_unanswered = false;
                     // The server has shown itself: the network may now be
                     // identifiable, which is a converge decision.
                     self.rejudge = true;
                     changed = true;
                 }
                 Action::NoOffer => {
-                    if self.warning.is_none() {
-                        self.warning = Some("asked for an address; nobody answered".into());
-                    }
+                    self.discovery_unanswered = true;
                     let wants_ll = self.profile().is_some_and(|p| p.address.link_local);
                     if wants_ll && self.link_local.is_none() {
                         let ll = Netd::link_local_for(self.link.mac.as_ref(), self.link.index);
@@ -1603,7 +1610,7 @@ mod dns_tests {
             },
             network: None,
             rejudge: false,
-            warning: None,
+            discovery_unanswered: false,
             dhcp: None,
             lease: None,
             link_local: None,
@@ -1634,6 +1641,34 @@ mod dns_tests {
 
     fn servers(values: &[&str]) -> Vec<IpAddr> {
         values.iter().map(|s| s.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn discovery_warning_survives_rejudgment_until_bind_or_stop() {
+        let mut i = interface(&[], &[], false);
+        let now = Instant::now();
+        assert_eq!(i.warning(), None);
+        i.perform(vec![Action::NoOffer], now);
+        let warning = Some("asked for an address; nobody answered".to_string());
+        assert_eq!(i.warning(), warning);
+        let joined = i.judgment.clone();
+        i.judgment = joined.clone();
+        assert_eq!(i.warning(), warning);
+        i.judgment.conflict = true;
+        i.judgment.rule = "one,two".into();
+        assert_eq!(
+            i.warning().as_deref(),
+            Some("rules one,two tie; the interface is ignored")
+        );
+        i.judgment = joined;
+        assert_eq!(i.warning(), warning);
+        i.perform(vec![Action::Bound(lease(&[], &[], None))], now);
+        assert_eq!(i.warning(), None);
+        assert_eq!(i.link_local, None);
+        i.perform(vec![Action::NoOffer], now);
+        assert_eq!(i.warning(), warning);
+        i.stop_dhcp(now);
+        assert_eq!(i.warning(), None);
     }
 
     #[test]
