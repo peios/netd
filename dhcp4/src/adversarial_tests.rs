@@ -199,19 +199,6 @@ fn an_ack_without_a_usable_lease_is_ignored() {
         0,
     );
     assert!(c.receive(now, &m).is_empty());
-    // A classless route with a prefix of 200.
-    let mut m = reply(
-        &request,
-        MessageType::Ack,
-        Ipv4Addr::new(10, 0, 2, 15),
-        Ipv4Addr::new(10, 0, 2, 2),
-        3600,
-    );
-    m.options.push(
-        option::CLASSLESS_STATIC_ROUTE,
-        [200, 1, 2, 3, 4, 5, 6, 7, 8],
-    );
-    assert!(c.receive(now, &m).is_empty());
     assert_eq!(*c.state(), State::Requesting);
     // A non-contiguous mask falls back to classful rather than nonsense.
     let mut m = reply(
@@ -357,4 +344,51 @@ fn a_flood_of_offers_costs_nothing_but_the_first() {
     // One request, for the first offer; every later one is dropped.
     assert_eq!(total, 1);
     assert_eq!(*c.state(), State::Requesting);
+}
+
+#[test]
+fn malformed_optional_routes_do_not_bypass_ack_identity_checks() {
+    let mut c = client();
+    let now = Instant::now();
+    let discover = sent(&c.start(now, None)).clone();
+    let server = Ipv4Addr::new(10, 0, 2, 2);
+    let address = Ipv4Addr::new(10, 0, 2, 15);
+    let offer = reply(&discover, MessageType::Offer, address, server, 3600);
+    let request = sent(&c.receive(now, &offer)).clone();
+    let mut ack = reply(&request, MessageType::Ack, address, server, 3600);
+    ack.options.push(
+        option::CLASSLESS_STATIC_ROUTE,
+        [200, 1, 2, 3, 4, 5, 6, 7, 8],
+    );
+    for case in 0..5 {
+        let mut wrong = ack.clone();
+        match case {
+            0 => wrong.xid ^= 1,
+            1 => wrong.chaddr[5] ^= 1,
+            2 => wrong.is_reply = false,
+            3 => {
+                wrong
+                    .options
+                    .0
+                    .retain(|(code, _)| *code != option::SERVER_ID);
+                wrong.options.push(option::SERVER_ID, [10, 0, 2, 99]);
+            }
+            4 => wrong
+                .options
+                .0
+                .retain(|(code, _)| *code != option::MESSAGE_TYPE),
+            _ => unreachable!(),
+        }
+        assert!(c.receive(now, &wrong).is_empty(), "identity case {case}");
+        assert_eq!(*c.state(), State::Requesting);
+    }
+    // The same optional data is recoverable once the ACK's identity is right.
+    let actions = c.receive(now, &ack);
+    let [Action::Bound(lease)] = actions.as_slice() else {
+        panic!("expected the valid ACK to bind: {actions:?}");
+    };
+    assert_eq!(*c.state(), State::Bound);
+    assert_eq!(lease.address, address);
+    assert_eq!(lease.gateway(), Some(server));
+    assert!(lease.static_routes.is_empty());
 }
