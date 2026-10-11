@@ -17,7 +17,7 @@ mod netlink;
 mod networks;
 mod reconcile;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
@@ -316,8 +316,12 @@ impl Interface {
                 }
             }
         }
-        facts.servers.dedup();
-        facts.search.dedup();
+        // Preserve source precedence and the first occurrence within each
+        // source, including duplicates separated by other entries.
+        let mut servers = HashSet::new();
+        facts.servers.retain(|server| servers.insert(*server));
+        let mut search = HashSet::new();
+        facts.search.retain(|domain| search.insert(domain.clone()));
         // Time servers are reported whatever `use_from_dhcp` says about
         // *DNS*: that switch is about name resolution, and whether to
         // believe a lease's time servers is timed's decision, made against
@@ -1556,5 +1560,145 @@ fn main() -> ExitCode {
             netd.apply_hostname();
             netd.publish();
         }
+    }
+}
+
+#[cfg(test)]
+mod dns_tests {
+    use super::*;
+    use libnetd::profile::DnsConfig;
+
+    // Plain data only: no clients, sockets, registry or host interfaces.
+    fn interface(servers: &[&str], domains: &[&str], offered: bool) -> Interface {
+        Interface {
+            ifid: "dns-fixture".into(),
+            identity: Identity {
+                path: String::new(),
+                driver: String::new(),
+            },
+            link: Link {
+                index: 1,
+                name: "dns-fixture".into(),
+                mac: None,
+                up: true,
+                carrier: true,
+                loopback: false,
+                mtu: 1500,
+                link_type: 1,
+                kind: LinkKind::Ether,
+            },
+            judgment: Judgment {
+                outcome: Outcome::Join(Profile {
+                    path: "fixture".into(),
+                    enabled: true,
+                    address: Default::default(),
+                    dns: DnsConfig {
+                        servers: servers.iter().map(|s| s.parse().unwrap()).collect(),
+                        domains: domains.iter().map(|s| s.to_string()).collect(),
+                        offered,
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            },
+            network: None,
+            rejudge: false,
+            warning: None,
+            dhcp: None,
+            lease: None,
+            link_local: None,
+            ndp: None,
+            dhcp6: None,
+        }
+    }
+
+    fn lease(servers: &[&str], search: &[&str], domain: Option<&str>) -> Lease {
+        Lease {
+            address: Ipv4Addr::new(192, 0, 2, 10),
+            prefix: 24,
+            server: Ipv4Addr::new(192, 0, 2, 1),
+            routers: vec![],
+            dns: servers.iter().map(|s| s.parse().unwrap()).collect(),
+            domain: domain.map(str::to_owned),
+            search: search.iter().map(|s| s.to_string()).collect(),
+            hostname: None,
+            mtu: None,
+            broadcast: None,
+            ntp: vec![Ipv4Addr::new(192, 0, 2, 123); 2],
+            static_routes: vec![],
+            lease_time: 3600,
+            t1: 1800,
+            t2: 3150,
+        }
+    }
+
+    fn servers(values: &[&str]) -> Vec<IpAddr> {
+        values.iter().map(|s| s.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn dns_retains_first_occurrences_across_profile_and_lease() {
+        let mut i = interface(
+            &[
+                "10.0.0.2",
+                "2001:db8::2",
+                "10.0.0.1",
+                "10.0.0.2",
+                "2001:db8::2",
+            ],
+            &["z.example", "a.example", "z.example"],
+            true,
+        );
+        i.lease = Some(lease(
+            &["10.0.0.1", "10.0.0.3", "10.0.0.2", "10.0.0.3"],
+            &["a.example", "m.example", "z.example", "m.example"],
+            Some("unused.example"),
+        ));
+        let facts = i.dns(Instant::now());
+        assert_eq!(
+            facts.servers,
+            servers(&["10.0.0.2", "2001:db8::2", "10.0.0.1", "10.0.0.3"])
+        );
+        assert_eq!(facts.search, ["z.example", "a.example", "m.example"]);
+        assert_eq!(facts.ntp, i.lease.as_ref().unwrap().ntp);
+    }
+
+    #[test]
+    fn dns_deduplicates_the_lease_domain_fallback() {
+        let mut i = interface(&["10.0.0.1"], &["z.example", "a.example"], true);
+        i.lease = Some(lease(&["10.0.0.2", "10.0.0.1"], &[], Some("z.example")));
+        let facts = i.dns(Instant::now());
+        assert_eq!(facts.servers, servers(&["10.0.0.1", "10.0.0.2"]));
+        assert_eq!(facts.search, ["z.example", "a.example"]);
+    }
+
+    #[test]
+    fn dns_offered_disabled_still_deduplicates_profile_and_reports_ntp() {
+        let mut i = interface(
+            &["2001:db8::2", "2001:db8::1", "2001:db8::2"],
+            &["z.example", "a.example", "z.example"],
+            false,
+        );
+        i.lease = Some(lease(&["10.0.0.1"], &["offered.example"], None));
+        let facts = i.dns(Instant::now());
+        assert_eq!(facts.servers, servers(&["2001:db8::2", "2001:db8::1"]));
+        assert_eq!(facts.search, ["z.example", "a.example"]);
+        assert_eq!(facts.ntp, i.lease.as_ref().unwrap().ntp);
+    }
+
+    #[test]
+    fn dns_preserves_empty_unique_and_exact_domain_values() {
+        assert_eq!(
+            interface(&[], &[], true).dns(Instant::now()),
+            DnsFacts::default()
+        );
+        let i = interface(
+            &["2001:db8::2", "10.0.0.1"],
+            &["Z.example", "z.example", "a.example"],
+            true,
+        );
+        let facts = i.dns(Instant::now());
+        assert_eq!(facts.servers, servers(&["2001:db8::2", "10.0.0.1"]));
+        assert_eq!(facts.search, ["Z.example", "z.example", "a.example"]);
     }
 }
