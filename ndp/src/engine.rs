@@ -222,7 +222,7 @@ impl Engine {
                 // §5.5.3(e): an unauthenticated RA may extend the valid
                 // lifetime freely but may not cut what remains below two
                 // hours — else one spoofed packet invalidates the address.
-                // Forever stays forever unless the new value is also long.
+                // An infinite remaining lifetime is above two hours too.
                 let remaining = p.valid_until.map(|t| t.saturating_duration_since(now));
                 let received = Duration::from_secs(u64::from(info.valid));
                 p.valid_until = match (until(now, info.valid), remaining) {
@@ -230,7 +230,7 @@ impl Engine {
                     (_, Some(rem)) if rem <= TWO_HOURS => Some(now + rem),
                     (_, Some(_)) => Some(now + TWO_HOURS),
                     (new, None) if received > TWO_HOURS => new,
-                    (_, None) => None,
+                    (_, None) => Some(now + TWO_HOURS),
                 };
             }
             None if info.valid > 0 => {
@@ -630,6 +630,132 @@ mod tests {
         let after_two_hours = t0 + Duration::from_secs(7300);
         e.tick(after_two_hours);
         assert!(e.addresses(after_two_hours).is_empty());
+    }
+
+    fn check_infinite_prefix_shortened(valid: u32) {
+        let mut e = Engine::new(config());
+        let t0 = Instant::now();
+        e.receive(t0, router(), &advert("fd00::", u32::MAX, u32::MAX, 65535));
+        let address = e.addresses(t0)[0].address;
+        // Measure the two hours from the shortening advertisement, not
+        // from when the infinite prefix was first learned.
+        let renewed = t0 + Duration::from_secs(300);
+        let actions = e.receive(renewed, router(), &advert("fd00::", valid, 0, 65535));
+        assert!(
+            actions.contains(&Action::Changed),
+            "preferred lifetime still updates"
+        );
+        let deadline = renewed + TWO_HOURS;
+        assert_eq!(e.next_deadline(), Some(deadline));
+        let before = deadline - Duration::from_nanos(1);
+        e.tick(before);
+        let addresses = e.addresses(before);
+        assert_eq!(
+            addresses.len(),
+            1,
+            "the address survives until the deadline"
+        );
+        assert_eq!(addresses[0].address, address);
+        assert!(addresses[0].deprecated);
+        let actions = e.tick(deadline);
+        assert!(
+            actions.contains(&Action::Changed),
+            "expiry must be reconciled"
+        );
+        assert!(e.addresses(deadline).is_empty());
+        assert!(
+            e.prefixes.is_empty(),
+            "expiry removes the stored prefix too"
+        );
+    }
+
+    #[test]
+    fn an_infinite_prefix_withdrawal_gets_two_hours() {
+        check_infinite_prefix_shortened(0);
+    }
+
+    #[test]
+    fn an_infinite_prefix_with_one_second_gets_two_hours() {
+        check_infinite_prefix_shortened(1);
+    }
+
+    #[test]
+    fn an_infinite_prefix_with_two_hours_gets_two_hours() {
+        check_infinite_prefix_shortened(7200);
+    }
+
+    #[test]
+    fn an_infinite_prefix_accepts_a_lifetime_above_two_hours() {
+        let mut e = Engine::new(config());
+        let t0 = Instant::now();
+        e.receive(t0, router(), &advert("fd00::", u32::MAX, u32::MAX, 65535));
+        let renewed = t0 + Duration::from_secs(300);
+        e.receive(renewed, router(), &advert("fd00::", 7201, 0, 65535));
+        let deadline = renewed + Duration::from_secs(7201);
+        assert_eq!(e.next_deadline(), Some(deadline));
+        e.tick(renewed + TWO_HOURS);
+        assert_eq!(e.addresses(renewed + TWO_HOURS).len(), 1);
+        assert!(e.tick(deadline).contains(&Action::Changed));
+        assert!(e.addresses(deadline).is_empty());
+    }
+
+    #[test]
+    fn infinity_can_renew_either_an_infinite_or_a_shortened_prefix() {
+        for shorten in [false, true] {
+            let mut e = Engine::new(config());
+            let t0 = Instant::now();
+            e.receive(t0, router(), &advert("fd00::", u32::MAX, u32::MAX, 65535));
+            let address = e.addresses(t0)[0].address;
+            if shorten {
+                e.receive(t0, router(), &advert("fd00::", 0, 0, 65535));
+            }
+            let renewed = t0 + Duration::from_secs(300);
+            e.receive(
+                renewed,
+                router(),
+                &advert("fd00::", u32::MAX, u32::MAX, 65535),
+            );
+            let prefix = e.prefixes.values().next().unwrap();
+            assert_eq!(prefix.valid_until, None);
+            assert_eq!(prefix.preferred_until, None);
+            let later = renewed + Duration::from_secs(86400);
+            e.tick(later);
+            let addresses = e.addresses(later);
+            assert_eq!(addresses.len(), 1);
+            assert_eq!(addresses[0].address, address);
+            assert!(!addresses[0].deprecated);
+        }
+    }
+
+    #[test]
+    fn a_shortened_prefix_keeps_the_finite_renewal_rules() {
+        // Once clamped, smaller advertisements may neither shorten nor
+        // restart the remaining lifetime. A longer one may extend it,
+        // even when that advertised lifetime is below two hours.
+        for (elapsed, valid, expected) in [
+            (0, 0, 7200),
+            (300, 1, 7200),
+            (300, 6900, 7200),
+            (300, 7000, 7300),
+            (300, 7201, 7501),
+        ] {
+            let mut e = Engine::new(config());
+            let t0 = Instant::now();
+            e.receive(t0, router(), &advert("fd00::", u32::MAX, u32::MAX, 65535));
+            e.receive(t0, router(), &advert("fd00::", 0, 0, 65535));
+            let renewed = t0 + Duration::from_secs(elapsed);
+            e.receive(renewed, router(), &advert("fd00::", valid, 0, 65535));
+            let deadline = t0 + Duration::from_secs(expected);
+            assert_eq!(
+                e.next_deadline(),
+                Some(deadline),
+                "elapsed={elapsed}, valid={valid}"
+            );
+            e.tick(deadline - Duration::from_nanos(1));
+            assert_eq!(e.addresses(deadline - Duration::from_nanos(1)).len(), 1);
+            assert!(e.tick(deadline).contains(&Action::Changed));
+            assert!(e.addresses(deadline).is_empty());
+        }
     }
 
     #[test]
