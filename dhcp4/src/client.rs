@@ -42,8 +42,8 @@ pub enum Action {
     },
     /// A lease was obtained or renewed; configure the interface.
     Bound(Lease),
-    /// Discovery has gone unanswered for a while. Emitted once per Init
-    /// cycle; the client keeps discovering.
+    /// Discovery has gone unanswered for a while. Emitted once until a
+    /// lease is obtained or the client is started again; discovery continues.
     NoOffer,
     /// The lease is gone (expired, or NAKed). Unconfigure the interface.
     Lost,
@@ -290,6 +290,9 @@ impl Client {
                 MessageType::Ack,
             ) => match Lease::from_ack(message) {
                 Some(lease) => {
+                    // A successful lease ends the unanswered acquisition period.
+                    // If it is later lost, discovery may report NoOffer again.
+                    self.no_offer_reported = false;
                     self.state = State::Bound;
                     self.retransmit_at = None;
                     self.bound_at = Some(now);
@@ -647,6 +650,144 @@ mod tests {
         // Roughly 4, 8, 16, 32, 64, 64 with ±1 s jitter.
         assert!(gaps[0] >= Duration::from_secs(3) && gaps[0] <= Duration::from_secs(5));
         assert!(gaps[4] >= Duration::from_secs(63) && gaps[5] <= Duration::from_secs(65));
+    }
+
+    // Exercise the real client across a continuous discovery/lease history.
+    // The existing bind() helper calls start(), which would hide this bug.
+    fn unanswered_discovery(c: &mut Client, now: &mut Instant, expected: usize) -> Message {
+        let mut no_offers = 0;
+        let mut last_discover = None;
+        for attempt in 1..=6 {
+            let previous = *now;
+            *now = c.next_deadline().unwrap();
+            let actions = c.tick(*now);
+            assert_eq!(*c.state(), State::Selecting);
+            let sends = sent(&actions);
+            assert_eq!(sends.len(), 1);
+            assert_eq!(sends[0].0.message_type(), Some(MessageType::Discover));
+            assert_eq!(sends[0].1, Destination::Broadcast);
+            let notices = actions
+                .iter()
+                .filter(|a| matches!(a, Action::NoOffer))
+                .count();
+            assert_eq!(notices, usize::from(expected == 1 && attempt == 3));
+            no_offers += notices;
+            if attempt == 1 {
+                let gap = now.saturating_duration_since(previous);
+                assert!(gap >= Duration::from_secs(3) && gap <= Duration::from_secs(5));
+            }
+            last_discover = Some(sends[0].0.clone());
+        }
+        assert_eq!(no_offers, expected);
+        last_discover.unwrap()
+    }
+
+    fn bind_after_unanswered_discovery(c: &mut Client, now: &mut Instant) {
+        c.start(*now, None);
+        let discover = unanswered_discovery(c, now, 1);
+        let offer = reply(
+            &discover,
+            MessageType::Offer,
+            Ipv4Addr::new(10, 0, 2, 15),
+            1000,
+        );
+        let actions = c.receive(*now, &offer);
+        let ack = reply(sent(&actions)[0].0, MessageType::Ack, offer.yiaddr, 1000);
+        let actions = c.receive(*now, &ack);
+        assert!(matches!(actions.as_slice(), [Action::Bound(_)]));
+        assert_eq!(*c.state(), State::Bound);
+        assert_eq!(c.expires_in(*now), Some(1000));
+    }
+
+    #[test]
+    fn lease_expiry_rearms_no_offer_after_an_earlier_unanswered_discovery() {
+        let mut c = client();
+        let mut now = Instant::now();
+        bind_after_unanswered_discovery(&mut c, &mut now);
+        let bound_at = now;
+        c.tick(bound_at + Duration::from_secs(500));
+        assert_eq!(*c.state(), State::Renewing);
+        c.tick(bound_at + Duration::from_secs(875));
+        assert_eq!(*c.state(), State::Rebinding);
+        now = bound_at + Duration::from_secs(1000);
+        let actions = c.tick(now);
+        assert!(matches!(actions.first(), Some(Action::Lost)));
+        assert_eq!(*c.state(), State::Selecting);
+        assert!(c.lease().is_none());
+        unanswered_discovery(&mut c, &mut now, 1);
+    }
+
+    #[test]
+    fn renewal_and_rebinding_naks_rearm_no_offer_after_an_earlier_unanswered_discovery() {
+        for rebinding in [false, true] {
+            let mut c = client();
+            let mut now = Instant::now();
+            bind_after_unanswered_discovery(&mut c, &mut now);
+            let bound_at = now;
+            now = bound_at + Duration::from_secs(500);
+            let mut actions = c.tick(now);
+            assert_eq!(*c.state(), State::Renewing);
+            if rebinding {
+                now = bound_at + Duration::from_secs(875);
+                actions = c.tick(now);
+                assert_eq!(*c.state(), State::Rebinding);
+            }
+            let nak = reply(
+                sent(&actions)[0].0,
+                MessageType::Nak,
+                Ipv4Addr::UNSPECIFIED,
+                0,
+            );
+            let actions = c.receive(now, &nak);
+            assert!(matches!(actions.first(), Some(Action::Lost)));
+            assert_eq!(*c.state(), State::Selecting);
+            assert!(c.lease().is_none());
+            unanswered_discovery(&mut c, &mut now, 1);
+        }
+    }
+
+    #[test]
+    fn unbound_request_failures_do_not_repeat_an_existing_no_offer_notice() {
+        for nak in [false, true] {
+            let mut c = client();
+            let mut now = Instant::now();
+            c.start(now, None);
+            let discover = unanswered_discovery(&mut c, &mut now, 1);
+            let offer = reply(
+                &discover,
+                MessageType::Offer,
+                Ipv4Addr::new(10, 0, 2, 15),
+                1000,
+            );
+            let actions = c.receive(now, &offer);
+            assert_eq!(*c.state(), State::Requesting);
+            // An invalid ACK does not end the unanswered acquisition period.
+            let mut ack = reply(sent(&actions)[0].0, MessageType::Ack, offer.yiaddr, 1000);
+            ack.options
+                .0
+                .retain(|(code, _)| *code != option::LEASE_TIME);
+            assert!(c.receive(now, &ack).is_empty());
+            assert_eq!(*c.state(), State::Requesting);
+            if nak {
+                let message = reply(
+                    sent(&actions)[0].0,
+                    MessageType::Nak,
+                    Ipv4Addr::UNSPECIFIED,
+                    0,
+                );
+                let actions = c.receive(now, &message);
+                assert!(actions.iter().all(|a| !matches!(a, Action::NoOffer)));
+            } else {
+                for _ in 0..4 {
+                    now = c.next_deadline().unwrap();
+                    let actions = c.tick(now);
+                    assert!(actions.iter().all(|a| !matches!(a, Action::NoOffer)));
+                }
+            }
+            assert_eq!(*c.state(), State::Selecting);
+            assert!(c.lease().is_none());
+            unanswered_discovery(&mut c, &mut now, 0);
+        }
     }
 
     fn bind(c: &mut Client, t0: Instant, lease_time: u32) {
