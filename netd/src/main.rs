@@ -847,14 +847,7 @@ impl Netd {
                 for l in &policy.lints {
                     log::warn(format_args!("{l}"));
                 }
-                let tie = self
-                    .interfaces
-                    .values()
-                    .filter(|i| !i.link.loopback)
-                    .map(|i| (i.link.name.clone(), policy.judge(&i.facts())))
-                    .find(|(_, j)| j.conflict);
-                if let Some((name, j)) = tie {
-                    let why = format!("rules {} tie on interface {name}", j.rule);
+                if let Some(why) = self.policy_conflict(&policy) {
                     log::error(format_args!(
                         "interface layer refused: {why}; the last good generation stands"
                     ));
@@ -876,6 +869,19 @@ impl Netd {
                 self.refusal = Some(e);
             }
         }
+    }
+
+    /// Validate against the facts available when a generation is adopted.
+    fn policy_conflict(&self, policy: &Policy) -> Option<String> {
+        self.interfaces
+            .values()
+            .filter(|i| !i.link.loopback)
+            .find_map(|i| {
+                let judgment = policy.judge(&i.facts());
+                judgment
+                    .conflict
+                    .then(|| format!("rules {} tie on interface {}", judgment.rule, i.link.name))
+            })
     }
 
     /// The full pass: links, DHCP starts, reconcile, hostname, publish.
@@ -1288,7 +1294,9 @@ fn main() -> ExitCode {
     let control = control::ControlObject::new(config.control_security.as_deref());
     let mut netd = Netd {
         config,
-        policy,
+        // Discover current interface facts under the inert backstop before
+        // the startup generation can start clients or reconcile links.
+        policy: Policy::default(),
         refusal,
         control,
         rtnl,
@@ -1311,10 +1319,19 @@ fn main() -> ExitCode {
     }
     log::info(format_args!(
         "{} rule tree(s), {} profile(s), {} link(s)",
-        netd.policy.forest.as_ref().map_or(0, |f| f.roots.len()),
-        netd.policy.profiles.len(),
+        policy.forest.as_ref().map_or(0, |f| f.roots.len()),
+        policy.profiles.len(),
         netd.observed.links.len()
     ));
+    netd.sync_links(Instant::now());
+    if let Some(why) = netd.policy_conflict(&policy) {
+        log::error(format_args!(
+            "interface layer refused: {why}; every interface is ignored"
+        ));
+        netd.refusal = Some(why);
+    } else {
+        netd.policy = policy;
+    }
     netd.converge(Instant::now());
     notify_ready();
 
