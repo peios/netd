@@ -16,6 +16,7 @@ mod model;
 mod netlink;
 mod networks;
 mod reconcile;
+mod restart;
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
@@ -54,6 +55,9 @@ struct Interface {
     discovery_unanswered: bool,
     dhcp: Option<Dhcp>,
     lease: Option<Lease>,
+    /// Kernel state inherited by this daemon, pending the first INIT-REBOOT.
+    restart: Option<restart::Ipv4>,
+    first_dhcp_start: bool,
     /// Set once discovery has gone unanswered; cleared on a lease.
     link_local: Option<Ipv4Addr>,
     /// IPv6 router discovery and SLAAC, once the link has carrier and a
@@ -231,6 +235,9 @@ impl Interface {
         });
         if let Some(g) = gateway {
             d.default_route = Some((g, metric));
+        }
+        if let Some(restart) = &self.restart {
+            restart.preserve(&mut d, profile.address.route_offered, metric);
         }
         if let Some(n) = &self.ndp {
             for a in n.engine.addresses(now) {
@@ -413,6 +420,8 @@ impl Netd {
                     discovery_unanswered: false,
                     dhcp: None,
                     lease: None,
+                    restart: None,
+                    first_dhcp_start: true,
                     link_local: None,
                     ndp: None,
                     dhcp6: None,
@@ -582,6 +591,7 @@ impl Netd {
                             .and_then(|id| inventory::requested_address(&id))
                     });
                 let actions = client.start(now, previous);
+                interface.remember_restart(&self.observed, previous);
                 log::info(format_args!(
                     "interface {}: dhcp starting",
                     interface.link.name
@@ -1046,6 +1056,22 @@ impl Netd {
 }
 
 impl Interface {
+    fn remember_restart(&mut self, observed: &Observed, requested: Option<Ipv4Addr>) {
+        self.restart = if std::mem::take(&mut self.first_dhcp_start) {
+            restart::Ipv4::capture(observed, self.link.index, requested)
+        } else {
+            None
+        };
+    }
+
+    fn finish_restart(&mut self, state: Option<&dhcp4::State>) -> bool {
+        if state != Some(&dhcp4::State::Rebooting) {
+            self.restart.take().is_some()
+        } else {
+            false
+        }
+    }
+
     fn warning(&self) -> Option<String> {
         if self.judgment.conflict {
             Some(format!(
@@ -1072,6 +1098,7 @@ impl Interface {
             }
         }
         self.lease = None;
+        self.restart = None;
         self.link_local = None;
         self.discovery_unanswered = false;
     }
@@ -1132,7 +1159,11 @@ impl Interface {
     /// Carry out the state machine's actions. Returns whether the network
     /// changed in a way that needs a reconcile.
     fn perform(&mut self, actions: Vec<Action>, _now: Instant) -> bool {
-        let mut changed = false;
+        // NAK and INIT-REBOOT timeout only send a new DISCOVER: neither
+        // emits Lost, since the client never held a confirmed lease. Their
+        // state transition must still remove the provisional kernel state.
+        let state = self.dhcp.as_ref().map(|d| d.client.state().clone());
+        let mut changed = self.finish_restart(state.as_ref());
         for action in actions {
             match action {
                 Action::Send {
@@ -1645,6 +1676,8 @@ mod dns_tests {
             discovery_unanswered: false,
             dhcp: None,
             lease: None,
+            restart: None,
+            first_dhcp_start: true,
             link_local: None,
             ndp: None,
             dhcp6: None,
@@ -1673,6 +1706,140 @@ mod dns_tests {
 
     fn servers(values: &[&str]) -> Vec<IpAddr> {
         values.iter().map(|s| s.parse().unwrap()).collect()
+    }
+
+    fn restart_fixture() -> (Interface, Observed) {
+        let mut i = interface(&[], &[], true);
+        let Outcome::Join(profile) = &mut i.judgment.outcome else {
+            unreachable!()
+        };
+        profile.address.offered = true;
+        profile.address.route_offered = true;
+        let address = model::Address::new(1, "192.0.2.10".parse().unwrap(), 24);
+        let route = model::Route {
+            index: 1,
+            destination: "0.0.0.0".parse().unwrap(),
+            prefix: 0,
+            gateway: Some("192.0.2.1".parse().unwrap()),
+            metric: 100,
+            protocol: model::RTPROT_NETD,
+        };
+        let observed = Observed {
+            links: [(1, i.link.clone())].into(),
+            addresses: vec![address],
+            routes: vec![route],
+        };
+        (i, observed)
+    }
+
+    #[test]
+    fn init_reboot_preserves_installed_ipv4_without_inventing_a_lease() {
+        let (mut i, observed) = restart_fixture();
+        i.remember_restart(&observed, Some("192.0.2.10".parse().unwrap()));
+        assert!(!i.finish_restart(Some(&dhcp4::State::Rebooting)));
+        assert!(reconcile::plan(&observed, &i.desired(Instant::now()).unwrap()).is_empty());
+        assert_eq!(i.level(&observed), Level::Routed);
+        assert!(i.lease.is_none());
+        assert!(i.dns(Instant::now()).servers.is_empty());
+    }
+
+    #[test]
+    fn restart_does_not_adopt_an_absent_or_unrelated_requested_address() {
+        for requested in [None, Some("192.0.2.11".parse().unwrap())] {
+            let (mut i, observed) = restart_fixture();
+            i.remember_restart(&observed, requested);
+            assert!(i.restart.is_none());
+            let ops = reconcile::plan(&observed, &i.desired(Instant::now()).unwrap());
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, reconcile::Op::DelAddress(_)))
+            );
+        }
+    }
+
+    #[test]
+    fn restart_preservation_obeys_route_policy_and_leaves_foreign_routes_alone() {
+        let (mut i, mut observed) = restart_fixture();
+        let mut foreign = observed.routes[0].clone();
+        foreign.metric = 900;
+        foreign.protocol = 99;
+        observed.routes.push(foreign.clone());
+        observed
+            .addresses
+            .push(model::Address::new(1, "192.0.2.99".parse().unwrap(), 24));
+        i.remember_restart(&observed, Some("192.0.2.10".parse().unwrap()));
+        let Outcome::Join(profile) = &mut i.judgment.outcome else {
+            unreachable!()
+        };
+        profile.address.route_offered = false;
+        let desired = i.desired(Instant::now()).unwrap();
+        let ops = reconcile::plan(&observed, &desired);
+        assert_eq!(desired.addresses, vec![("192.0.2.10".parse().unwrap(), 24)]);
+        assert!(ops.contains(&reconcile::Op::DelAddress(observed.addresses[1].clone())));
+        assert!(ops.contains(&reconcile::Op::DelRoute(observed.routes[0].clone())));
+        assert!(!ops.contains(&reconcile::Op::DelRoute(foreign)));
+    }
+
+    #[test]
+    fn restart_ends_on_client_outcome_and_is_not_readopted_after_stop() {
+        for state in [
+            None,
+            Some(dhcp4::State::Selecting),
+            Some(dhcp4::State::Bound),
+        ] {
+            let (mut i, observed) = restart_fixture();
+            let requested = Some("192.0.2.10".parse().unwrap());
+            i.remember_restart(&observed, requested);
+            assert!(i.finish_restart(state.as_ref()));
+            assert!(i.restart.is_none());
+            i.stop_dhcp(Instant::now());
+            i.remember_restart(&observed, requested);
+            assert!(
+                i.restart.is_none(),
+                "later profile/carrier restarts cannot readopt old state"
+            );
+        }
+    }
+
+    #[test]
+    fn stopping_during_reboot_clears_the_provisional_state() {
+        let (mut i, observed) = restart_fixture();
+        let requested = Some("192.0.2.10".parse().unwrap());
+        i.remember_restart(&observed, requested);
+        assert!(i.restart.is_some());
+        i.stop_dhcp(Instant::now());
+        assert!(i.restart.is_none());
+        i.remember_restart(&observed, requested);
+        assert!(i.restart.is_none());
+    }
+
+    #[test]
+    fn provisional_routes_use_the_current_metric_and_explicit_gateway() {
+        let (mut i, mut observed) = restart_fixture();
+        let mut extra = observed.routes[0].clone();
+        extra.destination = "198.51.100.0".parse().unwrap();
+        extra.prefix = 24;
+        observed.routes.push(extra);
+        i.remember_restart(&observed, Some("192.0.2.10".parse().unwrap()));
+        let Outcome::Join(profile) = &mut i.judgment.outcome else {
+            unreachable!()
+        };
+        profile.address.route_metric = Some(250);
+        profile.address.gateway = Some("192.0.2.2".parse().unwrap());
+        let desired = i.desired(Instant::now()).unwrap();
+        assert_eq!(
+            desired.default_route,
+            Some(("192.0.2.2".parse().unwrap(), 250))
+        );
+        assert_eq!(
+            desired.routes,
+            vec![(
+                "198.51.100.0".parse().unwrap(),
+                24,
+                "192.0.2.1".parse().unwrap(),
+                250
+            )]
+        );
     }
 
     #[test]
