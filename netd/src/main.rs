@@ -289,28 +289,19 @@ impl Interface {
                 }
                 // What the routers said (RDNSS) and what stateless DHCPv6
                 // answered, under the same switch: they are the network's
-                // word exactly as a lease's servers are. Link-local servers
-                // are withheld — resolvd addresses a server by IP alone,
-                // and a scopeless link-local goes nowhere (PEI-520 notes
-                // the gap).
+                // word exactly as a lease's servers are. The snapshot carries
+                // their interface, which resolvd uses to scope link-local
+                // upstream sockets (PEI-1357).
                 if let Some(n) = &self.ndp {
-                    facts.servers.extend(
-                        n.engine
-                            .dns_servers(now)
-                            .into_iter()
-                            .filter(|a| !is_v6_link_local(a))
-                            .map(IpAddr::V6),
-                    );
+                    facts
+                        .servers
+                        .extend(n.engine.dns_servers(now).into_iter().map(IpAddr::V6));
                     facts.search.extend(n.engine.search_domains(now));
                 }
                 if let Some(info) = self.dhcp6.as_ref().and_then(|d| d.client.info()) {
-                    facts.servers.extend(
-                        info.dns
-                            .iter()
-                            .filter(|a| !is_v6_link_local(a))
-                            .copied()
-                            .map(IpAddr::V6),
-                    );
+                    facts
+                        .servers
+                        .extend(info.dns.iter().copied().map(IpAddr::V6));
                     facts.search.extend(info.search.iter().cloned());
                 }
             }
@@ -513,7 +504,10 @@ impl Netd {
     }
 
     fn start_dhcp_where_due(&mut self, now: Instant) {
-        let hostname = self.config.hostname.as_deref()
+        let hostname = self
+            .config
+            .hostname
+            .as_deref()
             .and_then(|name| libnetd::hostname::check(name).ok());
         for interface in self.interfaces.values_mut() {
             let Some((dhcp4, send_hostname)) = interface
@@ -1005,8 +999,7 @@ impl Netd {
                     .clone()
                     .unwrap_or_else(|| self.snapshot());
                 let bytes = Reply::Snapshot(snapshot).encode();
-                if stream.set_nonblocking(true).is_ok() && send_nonblocking(&mut stream, &bytes)
-                {
+                if stream.set_nonblocking(true).is_ok() && send_nonblocking(&mut stream, &bytes) {
                     self.subscribers.push(stream);
                 }
                 return None;
@@ -1377,7 +1370,11 @@ fn main() -> ExitCode {
         push(&mut fds, netd.rtnl.as_raw_fd());
         push(
             &mut fds,
-            if clients.can_accept() { listener.as_raw_fd() } else { -1 },
+            if clients.can_accept() {
+                listener.as_raw_fd()
+            } else {
+                -1
+            },
         );
         let control_slots: Vec<_> = clients
             .fds()
