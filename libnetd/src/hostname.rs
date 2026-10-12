@@ -1,9 +1,8 @@
 //! The machine's name: `Machine\System\Network Hostname`.
 //!
-//! netd takes the value as it is: it hands it to `sethostname` and sends it
-//! to a DHCP server as the machine's name (option 12). The kernel takes
-//! nearly anything, and a network does not, so a program writing the value
-//! holds it to what a network will carry as one name: a single DNS label
+//! netd validates the selected registry or DHCP name before `sethostname`,
+//! and validates the registry name before announcing it in DHCP option 12.
+//! Programs writing the value use the same rule: a single DNS label
 //! (RFC 1123), letters, digits and hyphens, at most 63 of them, not
 //! beginning or ending with a hyphen. All digits is a name too.
 //!
