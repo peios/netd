@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::fd::AsRawFd;
-use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
+use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -988,70 +988,60 @@ impl Netd {
         }
     }
 
-    fn handle_control(&mut self, listener: &UnixListener) {
-        loop {
-            let (mut stream, _) = match listener.accept() {
-                Ok(s) => s,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
-                Err(e) => {
-                    log::warn(format_args!("control: accept: {e}"));
-                    return;
+    fn handle_control(
+        &mut self,
+        mut stream: UnixStream,
+        request: Request,
+    ) -> Option<(UnixStream, Reply)> {
+        let Some(caller) = self.control.permits(&stream, request.required_right()) else {
+            return Some((stream, Reply::Error("access denied".into())));
+        };
+        let now = Instant::now();
+        let reply = match request {
+            Request::Status => Reply::Status(self.status()),
+            Request::Subscribe => {
+                let snapshot = self
+                    .last_snapshot
+                    .clone()
+                    .unwrap_or_else(|| self.snapshot());
+                let bytes = Reply::Snapshot(snapshot).encode();
+                if stream.set_nonblocking(true).is_ok() && send_nonblocking(&mut stream, &bytes)
+                {
+                    self.subscribers.push(stream);
                 }
-            };
-            let Some(request) = control::read_request(&mut stream) else {
-                continue;
-            };
-            let Some(caller) = self.control.permits(&stream, request.required_right()) else {
-                control::respond(&mut stream, &Reply::Error("access denied".into()));
-                continue;
-            };
-            let now = Instant::now();
-            let reply = match request {
-                Request::Status => Reply::Status(self.status()),
-                Request::Subscribe => {
-                    let snapshot = self
-                        .last_snapshot
-                        .clone()
-                        .unwrap_or_else(|| self.snapshot());
-                    let bytes = Reply::Snapshot(snapshot).encode();
-                    if stream.set_nonblocking(true).is_ok() && send_nonblocking(&mut stream, &bytes)
-                    {
-                        self.subscribers.push(stream);
+                return None;
+            }
+            Request::Reconcile => {
+                // The pass is the caller's, so a name it changes is
+                // recorded as theirs.
+                self.acting_for = Some(caller.sid);
+                self.converge(now);
+                self.acting_for = None;
+                Reply::Ok
+            }
+            Request::Renew { interface } => {
+                match self
+                    .interfaces
+                    .values_mut()
+                    .find(|i| i.link.name == interface || i.ifid == interface)
+                {
+                    None => Reply::Error(format!("no interface {interface}")),
+                    Some(i) if i.dhcp.is_none() => {
+                        Reply::Error(format!("{interface} is not using DHCP"))
                     }
-                    continue;
-                }
-                Request::Reconcile => {
-                    // The pass is the caller's, so a name it changes is
-                    // recorded as theirs.
-                    self.acting_for = Some(caller.sid);
-                    self.converge(now);
-                    self.acting_for = None;
-                    Reply::Ok
-                }
-                Request::Renew { interface } => {
-                    match self
-                        .interfaces
-                        .values_mut()
-                        .find(|i| i.link.name == interface || i.ifid == interface)
-                    {
-                        None => Reply::Error(format!("no interface {interface}")),
-                        Some(i) if i.dhcp.is_none() => {
-                            Reply::Error(format!("{interface} is not using DHCP"))
-                        }
-                        Some(i) => {
-                            let actions = i
-                                .dhcp
-                                .as_mut()
-                                .map(|d| d.client.renew_now(now))
-                                .unwrap_or_default();
-                            i.perform(actions, now);
-                            Reply::Ok
-                        }
+                    Some(i) => {
+                        let actions = i
+                            .dhcp
+                            .as_mut()
+                            .map(|d| d.client.renew_now(now))
+                            .unwrap_or_default();
+                        i.perform(actions, now);
+                        Reply::Ok
                     }
                 }
-            };
-            control::respond(&mut stream, &reply);
-        }
+            }
+        };
+        Some((stream, reply))
     }
 }
 
@@ -1343,6 +1333,7 @@ fn main() -> ExitCode {
     netd.converge(Instant::now());
     notify_ready();
 
+    let mut clients = control::Clients::default();
     let mut watch_buffer = vec![0u8; 16384];
     loop {
         let now = Instant::now();
@@ -1364,6 +1355,7 @@ fn main() -> ExitCode {
                 consider(d.client.next_deadline());
             }
         }
+        consider(clients.next_deadline());
         let timeout_ms: i32 = match deadline {
             Some(t) => t
                 .saturating_duration_since(now)
@@ -1383,7 +1375,19 @@ fn main() -> ExitCode {
             fds.len() - 1
         }
         push(&mut fds, netd.rtnl.as_raw_fd());
-        push(&mut fds, listener.as_raw_fd());
+        push(
+            &mut fds,
+            if clients.can_accept() { listener.as_raw_fd() } else { -1 },
+        );
+        let control_slots: Vec<_> = clients
+            .fds()
+            .into_iter()
+            .map(|(fd, events)| {
+                let slot = push(&mut fds, fd);
+                fds[slot].events = events;
+                (fd, slot)
+            })
+            .collect();
         let watch_slot = watch.as_ref().map(|w| push(&mut fds, w.as_raw_fd()));
         let absorber_slot = absorber
             .as_ref()
@@ -1571,8 +1575,18 @@ fn main() -> ExitCode {
                 .unwrap_or_default();
             reconcile |= i.perform_dhcp6(actions);
         }
+        clients.expire(Instant::now());
+        for (fd, slot) in control_slots {
+            if fds[slot].revents != 0 {
+                if let Some((stream, request)) = clients.service(fd, Instant::now()) {
+                    if let Some((stream, reply)) = netd.handle_control(stream, request) {
+                        clients.reply(stream, &reply, Instant::now());
+                    }
+                }
+            }
+        }
         if fds[1].revents != 0 {
-            netd.handle_control(&listener);
+            clients.accept(&listener, Instant::now());
         }
         if netd.interfaces.values().any(|i| i.rejudge) {
             converge = true;
