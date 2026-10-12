@@ -1217,10 +1217,11 @@ fn notify_ready() {
     notify(b"READY=1");
 }
 
-/// Publish the machine's readiness level to peinit.
+/// Publish every readiness condition currently holding on the machine.
 ///
 /// This is what makes `Requires = ["netd:routed"]` work: peinit records
-/// the level against this service and holds a dependent until it matches.
+/// the complete set against this service and waits for membership. netd
+/// supplies the implications; peinit knows no ordering of these names.
 /// It travels on the notify socket netd already has rather than over
 /// netd's own control socket, so PID 1 needs no knowledge of libnetd and
 /// no subscription to maintain.
@@ -1231,7 +1232,41 @@ fn notify_ready() {
 /// and the level is a statement of a current condition, which is exactly
 /// the shape that spec requires of a field on this channel.
 fn notify_level(level: Level) {
-    notify(format!("LEVEL={}", level.as_str()).as_bytes());
+    notify(readiness_notification(level));
+}
+
+fn readiness_notification(level: Level) -> &'static [u8] {
+    match level {
+        Level::Absent => b"LEVEL=absent",
+        Level::Link => b"LEVEL=link",
+        Level::Addressed => b"LEVEL=link\nLEVEL=addressed",
+        Level::Routed => b"LEVEL=link\nLEVEL=addressed\nLEVEL=routed",
+    }
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[test]
+    fn each_notification_replaces_the_set_with_every_condition_that_holds() {
+        for (level, expected) in [
+            (Level::Absent, vec!["absent"]),
+            (Level::Link, vec!["link"]),
+            (Level::Addressed, vec!["link", "addressed"]),
+            (Level::Routed, vec!["link", "addressed", "routed"]),
+        ] {
+            let text = std::str::from_utf8(readiness_notification(level)).unwrap();
+            let levels: Vec<_> = text
+                .lines()
+                .map(|line| line.strip_prefix("LEVEL=").unwrap())
+                .collect();
+            assert_eq!(levels, expected);
+            // Old consumers take the final field: retain their previous
+            // highest-level behavior while peinit is being upgraded.
+            assert_eq!(levels.last().copied(), Some(level.as_str()));
+        }
+    }
 }
 
 fn notify(payload: &[u8]) {
