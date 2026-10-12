@@ -11,8 +11,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::os::fd::{AsRawFd, RawFd};
 
 use netlink_packet_core::{
-    NLM_F_ACK, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkHeader,
-    NetlinkMessage, NetlinkPayload,
+    NLM_F_ACK, NLM_F_APPEND, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
+    NetlinkHeader, NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::address::{
     AddressAttribute, AddressFlags, AddressHeader, AddressHeaderFlags, AddressMessage,
@@ -462,7 +462,15 @@ impl Rtnl for LinuxRtnl {
 
     fn add_route(&mut self, route: &Route) -> io::Result<()> {
         let m = route_message(route);
-        self.request(RouteNetlinkMessage::NewRoute(m), NLM_F_CREATE | NLM_F_EXCL)
+        // IPv4 EXCL rejects any route at this prefix/metric, even on a
+        // different interface. APPEND keeps those routes and admits a distinct
+        // nexthop; an exact duplicate still returns EEXIST.
+        let flags = if route.is_v4() {
+            NLM_F_CREATE | NLM_F_APPEND
+        } else {
+            NLM_F_CREATE | NLM_F_EXCL
+        };
+        self.request(RouteNetlinkMessage::NewRoute(m), flags)
     }
 
     fn del_route(&mut self, route: &Route) -> io::Result<()> {
