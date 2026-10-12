@@ -360,6 +360,8 @@ struct Netd {
     /// The RFC 7217 secret, read (or minted) when first needed.
     v6_secret: Option<[u8; 32]>,
     hostname_set: Option<String>,
+    /// Suppress repeated warnings for the same invalid selected name.
+    hostname_refused: Option<String>,
     /// The control client whose `reconcile` request is being carried out,
     /// set only for the length of that pass: a hostname change it makes is
     /// recorded with the client as `subject.token.sid`. Otherwise netd
@@ -515,7 +517,8 @@ impl Netd {
     }
 
     fn start_dhcp_where_due(&mut self, now: Instant) {
-        let hostname = self.config.hostname.clone();
+        let hostname = self.config.hostname.as_deref()
+            .and_then(|name| libnetd::hostname::check(name).ok());
         for interface in self.interfaces.values_mut() {
             let Some((dhcp4, send_hostname)) = interface
                 .profile()
@@ -729,7 +732,21 @@ impl Netd {
                 .flatten()
         });
         let Some(name) = self.config.hostname.clone().or(from_lease) else {
+            self.hostname_refused = None;
             return;
+        };
+        let name = match libnetd::hostname::check(&name) {
+            Ok(name) => {
+                self.hostname_refused = None;
+                name
+            }
+            Err(reason) => {
+                if self.hostname_refused.as_deref() != Some(name.as_str()) {
+                    log::warn(format_args!("hostname {name:?} refused: {reason:?}"));
+                    self.hostname_refused = Some(name);
+                }
+                return;
+            }
         };
         if self.hostname_set.as_deref() == Some(name.as_str()) {
             return;
@@ -1297,6 +1314,7 @@ fn main() -> ExitCode {
         duid: None,
         v6_secret: None,
         hostname_set: None,
+        hostname_refused: None,
         acting_for: None,
         subscribers: Vec::new(),
         last_snapshot: None,
