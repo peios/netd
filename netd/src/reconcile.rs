@@ -142,6 +142,10 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
         });
     }
     if let Some((gateway, metric)) = desired.default_route6 {
+        // inet6_rtm_newroute maps zero to IP6_RT_PRIO_USER, even when
+        // RTA_PRIORITY is present. Compare and send the stored value so
+        // the next dump converges instead of replacing this route forever.
+        let metric = if metric == 0 { 1024 } else { metric };
         want_routes.insert(Route {
             index,
             destination: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
@@ -398,6 +402,49 @@ mod tests {
         };
         assert_eq!(apply(&mut fake, &ops), 0);
         assert!(plan(&fake.state, &d).is_empty(), "converged");
+    }
+
+    #[test]
+    fn zero_ipv6_metric_converges_at_the_kernel_default() {
+        for (configured, effective) in [(0, 1024), (1, 1), (1024, 1024), (u32::MAX, u32::MAX)] {
+            let mut o = observed();
+            o.links.get_mut(&2).unwrap().up = true;
+            let d = Desired {
+                index: 2,
+                up: true,
+                default_route: Some(("192.0.2.1".parse().unwrap(), configured)),
+                default_route6: Some(("fe80::1".parse().unwrap(), configured)),
+                ..Default::default()
+            };
+            for (destination, gateway, metric) in [
+                ("0.0.0.0", "192.0.2.1", configured),
+                ("::", "fe80::1", effective),
+            ] {
+                o.routes.push(Route {
+                    index: 2,
+                    destination: destination.parse().unwrap(),
+                    prefix: 0,
+                    gateway: Some(gateway.parse().unwrap()),
+                    metric,
+                    protocol: RTPROT_NETD,
+                });
+            }
+            assert!(
+                plan(&o, &d).is_empty(),
+                "configured metric {configured}: converged"
+            );
+            o.routes.clear();
+            let ops = plan(&o, &d);
+            assert_eq!(ops.len(), 2);
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, Op::AddRoute(r) if r.is_v4() && r.metric == configured))
+            );
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, Op::AddRoute(r) if !r.is_v4() && r.metric == effective))
+            );
+        }
     }
 
     #[test]
