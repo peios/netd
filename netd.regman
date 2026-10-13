@@ -19,6 +19,10 @@ Three parts of the subtree are netd's business:
   `Status` keys only netd may write, beside the few values it shares with
   the operator.
 
+Machine-wide name resolution belongs to resolvd. For fallback servers,
+extra search domains, static names and its control object, query
+`regman 'Machine\System\Network\Dns'`; netd does not read that key.
+
 The layer, the facts, the verdicts and the profile vocabulary are
 specified in the network policy reference (learn: networking, "Network
 policy reference"); this file documents what netd reads and writes and
@@ -825,9 +829,3 @@ applies: n/a
 
 The interface this network was last reached through, by interface id.
 
---- machine\system\network\dns
-canonical: Machine\System\Network\Dns
-
-Name resolution's machine-wide values: fallback servers, extra search
-domains, static names, and resolvd's control object. netd does not read
-it; see resolvd.regman.
