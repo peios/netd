@@ -16,32 +16,32 @@
 
 use std::fmt::Arguments;
 use std::io::Write;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The one line written to stderr when the kmsg mirror cannot be opened.
 ///
-/// Written directly rather than through [`emit`]: `emit` calls [`kmsg`], and
-/// re-entering a `OnceLock` while it is initialising deadlocks.
+/// Written directly rather than through [`emit`] so a failed mirror does
+/// not recursively try to report its own failure.
 fn mirror_unavailable(err: &std::io::Error) -> String {
     format!("netd: warn: /dev/kmsg mirror unavailable ({err}): log lines go to stderr only\n")
 }
 
-fn kmsg() -> Option<&'static std::fs::File> {
-    static KMSG: OnceLock<Option<std::fs::File>> = OnceLock::new();
-    KMSG.get_or_init(
-        || match std::fs::OpenOptions::new().write(true).open("/dev/kmsg") {
-            Ok(file) => Some(file),
-            Err(err) => {
-                // Say so once, on stderr, where peinit's forwarder picks it
-                // up. Discarding this is how PEI-581 went unnoticed through
-                // three daemons: a mirror that opens nothing looks identical
-                // to a mirror nobody is reading.
+fn kmsg() -> Option<std::fs::File> {
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    // The kernel's devkmsg rate limit belongs to an open file. A shared
+    // descriptor loses every record after the tenth in a boot/reconcile
+    // burst. Give each record its own descriptor and close it after writing.
+    match std::fs::OpenOptions::new().write(true).open("/dev/kmsg") {
+        Ok(file) => Some(file),
+        Err(err) => {
+            if !WARNED.swap(true, Ordering::Relaxed) {
                 let _ = std::io::stderr().write_all(mirror_unavailable(&err).as_bytes());
-                None
             }
-        },
-    )
-    .as_ref()
+            // Retry on the next record: an early unavailable device need
+            // not leave the mirror disabled for the daemon's lifetime.
+            None
+        }
+    }
 }
 
 fn emit(level: &str, args: Arguments<'_>) {
