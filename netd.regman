@@ -179,7 +179,8 @@ joined interface and only the routes it added itself; the kernel's own
 router-advertisement handling is off everywhere (netd is the only RA
 listener on Peios); IPv6 lifetimes follow the RFCs with the two-hour
 floor; a manual change lasts until the next reconcile; restarting netd
-changes nothing visible.
+keeps each leased IPv4 address and its routes while the new process
+revalidates the lease.
 
 --- machine\system\network\profiles\<path...>
 canonical: Machine\System\Network\Profiles\<path...>
