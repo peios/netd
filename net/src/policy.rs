@@ -103,6 +103,10 @@ pub fn show() -> ExitCode {
 /// change); a refused walk is a failure, because what was written is not
 /// what is enforced.
 pub fn wait(timeout: Duration) -> ExitCode {
+    let deadline = match crate::deadline::after(timeout) {
+        Ok(deadline) => deadline,
+        Err(error) => return fail(error),
+    };
     let engine = match Engine::open() {
         Ok(e) => e,
         Err(e) => return fail(&e),
@@ -111,7 +115,6 @@ pub fn wait(timeout: Duration) -> ExitCode {
         Ok(s) => s[CHANGES_NOTED],
         Err(e) => return fail(&e),
     };
-    let deadline = Instant::now() + timeout;
     loop {
         let s = match engine.status() {
             Ok(s) => s,
@@ -129,6 +132,10 @@ pub fn wait(timeout: Duration) -> ExitCode {
         if Instant::now() >= deadline {
             return fail("timed out waiting for the policy to be in force");
         }
-        std::thread::sleep(Duration::from_millis(5));
+        if let Some(pause) =
+            crate::deadline::budget(deadline, Instant::now(), Duration::from_millis(5))
+        {
+            std::thread::sleep(pause);
+        }
     }
 }

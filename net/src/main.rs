@@ -5,9 +5,10 @@
 //! configuration and netd merely executes them. Changing the network is a
 //! registry write (`reg`); this command shows state and pokes the daemon.
 
+mod deadline;
 mod policy;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::process::ExitCode;
 
 use netd_client::{Client, Level, NETWORK_KEY, Status};
@@ -275,18 +276,26 @@ fn profiles() -> ExitCode {
 }
 
 fn wait(level: Level, timeout: u64) -> ExitCode {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
+    let deadline = match deadline::after(Duration::from_secs(timeout)) {
+        Ok(deadline) => deadline,
+        Err(error) => return command_result(Err(error.to_owned())),
+    };
     loop {
-        match status() {
-            Ok(s) if s.level >= level => return ExitCode::SUCCESS,
+        let Some(budget) = deadline::budget(deadline, Instant::now(), CONTROL_TIMEOUT) else {
+            return command_result(Err(format!("timed out waiting for {}", level.as_str())));
+        };
+        let status = Client::system(budget)
+            .and_then(|client| client.status())
+            .map_err(|error| error.to_string());
+        match status {
+            Ok(status) if status.level >= level => return ExitCode::SUCCESS,
             Ok(_) => {}
-            Err(e) => eprintln!("net: {e}"),
+            Err(error) => eprintln!("net: {error}"),
         }
-        if std::time::Instant::now() >= deadline {
-            eprintln!("net: timed out waiting for {}", level.as_str());
-            return ExitCode::FAILURE;
+        if let Some(pause) = deadline::budget(deadline, Instant::now(), Duration::from_millis(500))
+        {
+            std::thread::sleep(pause);
         }
-        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }
 
@@ -333,7 +342,13 @@ fn main() -> ExitCode {
             let Some(level) = Level::parse(level) else {
                 return usage();
             };
-            let timeout = words.get(2).and_then(|t| t.parse().ok()).unwrap_or(60);
+            let timeout = match words.get(2) {
+                Some(value) => match value.parse() {
+                    Ok(timeout) => timeout,
+                    Err(_) => return usage(),
+                },
+                None => 60,
+            };
             wait(level, timeout)
         }
         _ => usage(),
