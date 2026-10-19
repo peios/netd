@@ -94,7 +94,14 @@ impl Options {
 
     pub fn ipv4_list(&self, code: u8) -> Vec<Ipv4Addr> {
         self.get(code)
-            .map(|v| v.chunks_exact(4).filter_map(ipv4_at).collect())
+            .map(|v| {
+                v.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(Ipv4Addr::from)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

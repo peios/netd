@@ -196,7 +196,9 @@ impl Client {
                 OPTION_SERVER_ID => server_id = !data.is_empty(),
                 OPTION_DNS_SERVERS if data.len() % 16 == 0 => {
                     info.dns = data
-                        .chunks_exact(16)
+                        .as_chunks::<16>()
+                        .0
+                        .iter()
                         .take(MAX_SERVERS)
                         .map(|c| {
                             let mut b = [0u8; 16];

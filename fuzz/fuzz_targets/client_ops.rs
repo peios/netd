@@ -18,11 +18,27 @@ use libfuzzer_sys::fuzz_target;
 #[derive(Arbitrary, Debug)]
 enum Op {
     /// A reply to the last message sent, with this shape.
-    Reply { kind: u8, server: u8, address: u32, lease: u32, t1: Option<u32>, t2: Option<u32>, mask: u32, extra: Vec<(u8, Vec<u8>)>, wrong_xid: bool },
-    Raw { bytes: Vec<u8> },
-    Tick { secs: u32 },
+    Reply {
+        kind: u8,
+        server: u8,
+        address: u32,
+        lease: u32,
+        t1: Option<u32>,
+        t2: Option<u32>,
+        mask: u32,
+        extra: Vec<(u8, Vec<u8>)>,
+        wrong_xid: bool,
+    },
+    Raw {
+        bytes: Vec<u8>,
+    },
+    Tick {
+        secs: u32,
+    },
     Renew,
-    Restart { previous: bool },
+    Restart {
+        previous: bool,
+    },
 }
 
 #[derive(Arbitrary, Debug)]
@@ -35,13 +51,22 @@ const MAC: [u8; 6] = [0x52, 0x54, 0, 0x12, 0x34, 0x56];
 
 fn lease_ok(c: &Client) {
     match c.state() {
-        State::Bound | State::Renewing | State::Rebinding => assert!(c.lease().is_some(), "{:?} without a lease", c.state()),
-        State::Init | State::Selecting | State::Requesting | State::Rebooting => assert!(c.lease().is_none(), "{:?} with a lease", c.state()),
+        State::Bound | State::Renewing | State::Rebinding => {
+            assert!(c.lease().is_some(), "{:?} without a lease", c.state())
+        }
+        State::Init | State::Selecting | State::Requesting | State::Rebooting => {
+            assert!(c.lease().is_none(), "{:?} with a lease", c.state())
+        }
     }
 }
 
 fuzz_target!(|script: Script| {
-    let mut c = Client::new(Config { chaddr: MAC, client_id: vec![0xff, 1, 2, 3, 4], hostname: Some("box".into()), seed: script.seed });
+    let mut c = Client::new(Config {
+        chaddr: MAC,
+        client_id: vec![0xff, 1, 2, 3, 4],
+        hostname: Some("box".into()),
+        seed: script.seed,
+    });
     let mut now = Instant::now();
     let mut last_sent: Option<Message> = None;
     let mut chosen: Option<Ipv4Addr> = None;
@@ -51,7 +76,8 @@ fuzz_target!(|script: Script| {
                 Action::Send { message, .. } => {
                     assert!(message.options.get(option::MESSAGE_TYPE).is_some());
                     assert_eq!(message.chaddr, MAC);
-                    let again = Message::decode(&message.encode()).expect("our own message decodes");
+                    let again =
+                        Message::decode(&message.encode()).expect("our own message decodes");
                     assert_eq!(again.xid, message.xid);
                     *last_sent = Some(message.clone());
                 }
@@ -70,13 +96,24 @@ fuzz_target!(|script: Script| {
         let was_bound = *c.state() == State::Bound;
         let bound_server = c.lease().map(|l| l.server);
         let actions = match op {
-            Op::Reply { kind, server, address, lease, t1, t2, mask, extra, wrong_xid } => {
+            Op::Reply {
+                kind,
+                server,
+                address,
+                lease,
+                t1,
+                t2,
+                mask,
+                extra,
+                wrong_xid,
+            } => {
                 let Some(sent) = &last_sent else { continue };
                 let mut m = Message::request(if wrong_xid { sent.xid ^ 1 } else { sent.xid }, MAC);
                 m.is_reply = true;
                 m.yiaddr = Ipv4Addr::from(address);
                 let kinds = [MessageType::Offer, MessageType::Ack, MessageType::Nak];
-                m.options.push(option::MESSAGE_TYPE, [kinds[kind as usize % 3] as u8]);
+                m.options
+                    .push(option::MESSAGE_TYPE, [kinds[kind as usize % 3] as u8]);
                 let srv = Ipv4Addr::new(10, 0, 2, 1 + server % 3);
                 if server % 7 != 6 {
                     m.options.push(option::SERVER_ID, srv.octets());
@@ -123,7 +160,11 @@ fuzz_target!(|script: Script| {
             }
             Op::Renew => c.renew_now(now),
             Op::Restart { previous } => {
-                let prev = if previous { Some(Ipv4Addr::new(10, 0, 2, 15)) } else { None };
+                let prev = if previous {
+                    Some(Ipv4Addr::new(10, 0, 2, 15))
+                } else {
+                    None
+                };
                 let _ = c.release(now);
                 let acts = c.start(now, prev);
                 chosen = None;

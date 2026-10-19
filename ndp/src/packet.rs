@@ -158,7 +158,9 @@ fn rdnss(option: &[u8]) -> Option<Rdnss> {
     }
     let lifetime = u32::from_be_bytes([option[4], option[5], option[6], option[7]]);
     let servers = option[8..]
-        .chunks_exact(16)
+        .as_chunks::<16>()
+        .0
+        .iter()
         .take(MAX_SERVERS)
         .map(|c| {
             let mut b = [0u8; 16];
