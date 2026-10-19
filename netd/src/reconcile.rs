@@ -70,6 +70,17 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
         ops.push(Op::Mtu(index, mtu));
     }
 
+    plan_addresses(observed, desired, &mut ops);
+    plan_routes(observed, desired, &mut ops);
+
+    if !desired.up && link.up {
+        ops.push(Op::LinkDown(index));
+    }
+    ops
+}
+
+fn plan_addresses(observed: &Observed, desired: &Desired, ops: &mut Vec<Op>) {
+    let index = desired.index;
     let want: BTreeSet<Address> = desired
         .addresses
         .iter()
@@ -118,7 +129,10 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
             ops.push(Op::AddAddress(a.clone(), desired.broadcast));
         }
     }
+}
 
+fn plan_routes(observed: &Observed, desired: &Desired, ops: &mut Vec<Op>) {
+    let index = desired.index;
     let mut want_routes: BTreeSet<Route> = desired
         .routes
         .iter()
@@ -167,11 +181,6 @@ pub fn plan(observed: &Observed, desired: &Desired) -> Vec<Op> {
     for r in want_routes.difference(&have_routes) {
         ops.push(Op::AddRoute(r.clone()));
     }
-
-    if !desired.up && link.up {
-        ops.push(Op::LinkDown(index));
-    }
-    ops
 }
 
 /// Apply, logging each failure and carrying on: one bad route must not stop

@@ -9,6 +9,7 @@ mod audit;
 mod config;
 mod control;
 mod dhcp;
+mod event_loop;
 mod inventory;
 mod ipv6;
 mod log;
@@ -21,7 +22,6 @@ mod restart;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -629,7 +629,22 @@ impl Netd {
                             continue;
                         }
                     };
-                let secret = *self.v6_secret.get_or_insert_with(ipv6::secret);
+                let secret = match self.v6_secret {
+                    Some(secret) => secret,
+                    None => match ipv6::secret() {
+                        Ok(secret) => {
+                            self.v6_secret = Some(secret);
+                            secret
+                        }
+                        Err(error) => {
+                            log::warn(format_args!(
+                                "interface {}: cannot obtain an IPv6 address secret: {error}",
+                                interface.link.name
+                            ));
+                            continue;
+                        }
+                    },
+                };
                 let mut seed = interface
                     .ifid
                     .bytes()
@@ -1306,6 +1321,14 @@ fn notify(payload: &[u8]) {
     }
 }
 
+fn read_configuration_update() -> std::io::Result<Config> {
+    config::load().inspect_err(|error| {
+        log::warn(format_args!(
+            "configuration read failed: {error}; keeping the last complete configuration"
+        ));
+    })
+}
+
 fn main() -> ExitCode {
     let rtnl = match LinuxRtnl::open() {
         Ok(r) => r,
@@ -1333,8 +1356,14 @@ fn main() -> ExitCode {
     // Before any link comes up: the kernel must never act on an RA, on any
     // interface, or two listeners would each configure their own idea of
     // the network.
+    let config = match config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            log::error(format_args!("cannot read complete configuration: {error}"));
+            return ExitCode::FAILURE;
+        }
+    };
     ipv6::kernel_ra_off();
-    let config = config::load();
     let (policy, refusal) = match policy::build(config.rules.as_ref(), config.profiles.as_ref()) {
         Ok(p) => {
             for l in &p.lints {
@@ -1349,7 +1378,7 @@ fn main() -> ExitCode {
             (Policy::default(), Some(e))
         }
     };
-    let mut watch: Option<Key> = match config::watch() {
+    let watch: Option<Key> = match config::watch() {
         Ok(k) => Some(k),
         Err(e) => {
             log::warn(format_args!(
@@ -1392,277 +1421,7 @@ fn main() -> ExitCode {
     netd.converge(Instant::now());
     notify_ready();
 
-    let mut clients = control::Clients::default();
-    let mut watch_buffer = vec![0u8; 16384];
-    loop {
-        let now = Instant::now();
-        // Timers.
-        let mut deadline: Option<Instant> = None;
-        let mut consider = |t: Option<Instant>| {
-            if let Some(t) = t {
-                deadline = Some(deadline.map_or(t, |x: Instant| x.min(t)));
-            }
-        };
-        for i in netd.interfaces.values() {
-            if let Some(d) = &i.dhcp {
-                consider(d.client.next_deadline());
-            }
-            if let Some(n) = &i.ndp {
-                consider(n.engine.next_deadline());
-            }
-            if let Some(d) = &i.dhcp6 {
-                consider(d.client.next_deadline());
-            }
-        }
-        consider(clients.next_deadline());
-        let timeout_ms: i32 = match deadline {
-            Some(t) => t
-                .saturating_duration_since(now)
-                .as_millis()
-                .min(i32::MAX as u128) as i32,
-            None => -1,
-        };
-
-        // Poll set: [rtnl, control, watch?, absorber?, dhcp sockets...]
-        let mut fds: Vec<libc::pollfd> = Vec::new();
-        fn push(fds: &mut Vec<libc::pollfd>, fd: i32) -> usize {
-            fds.push(libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            });
-            fds.len() - 1
-        }
-        push(&mut fds, netd.rtnl.as_raw_fd());
-        push(
-            &mut fds,
-            if clients.can_accept() {
-                listener.as_raw_fd()
-            } else {
-                -1
-            },
-        );
-        let control_slots: Vec<_> = clients
-            .fds()
-            .into_iter()
-            .map(|(fd, events)| {
-                let slot = push(&mut fds, fd);
-                fds[slot].events = events;
-                (fd, slot)
-            })
-            .collect();
-        let watch_slot = watch.as_ref().map(|w| push(&mut fds, w.as_raw_fd()));
-        let absorber_slot = absorber
-            .as_ref()
-            .map(|a| push(&mut fds, a.fd().as_raw_fd()));
-        let dhcp_fds: Vec<(u32, i32)> = netd
-            .interfaces
-            .iter()
-            .filter_map(|(index, i)| i.dhcp.as_ref().map(|d| (*index, d.socket.fd().as_raw_fd())))
-            .collect();
-        let dhcp_slots: Vec<(u32, usize)> = dhcp_fds
-            .into_iter()
-            .map(|(index, fd)| (index, push(&mut fds, fd)))
-            .collect();
-        let ndp_fds: Vec<(u32, i32)> = netd
-            .interfaces
-            .iter()
-            .filter_map(|(index, i)| i.ndp.as_ref().map(|n| (*index, n.socket.fd().as_raw_fd())))
-            .collect();
-        let ndp_slots: Vec<(u32, usize)> = ndp_fds
-            .into_iter()
-            .map(|(index, fd)| (index, push(&mut fds, fd)))
-            .collect();
-        let dhcp6_fds: Vec<(u32, i32)> = netd
-            .interfaces
-            .iter()
-            .filter_map(|(index, i)| {
-                i.dhcp6
-                    .as_ref()
-                    .map(|d| (*index, d.socket.fd().as_raw_fd()))
-            })
-            .collect();
-        let dhcp6_slots: Vec<(u32, usize)> = dhcp6_fds
-            .into_iter()
-            .map(|(index, fd)| (index, push(&mut fds, fd)))
-            .collect();
-
-        // SAFETY: `fds` is a live, exclusively borrowed array for the call.
-        let rc = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
-        if rc < 0 {
-            let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            log::error(format_args!("poll: {e}"));
-            return ExitCode::FAILURE;
-        }
-        let now = Instant::now();
-        let mut converge = false;
-        let mut reconcile = false;
-
-        if fds[0].revents != 0 && netd.rtnl.drain_events() {
-            // Always converge: the state may already have been dumped after
-            // an apply without the decisions that follow from it being made.
-            match netd.rtnl.dump() {
-                Ok(o) => {
-                    netd.observed = o;
-                    converge = true;
-                }
-                Err(e) => log::warn(format_args!("netlink dump: {e}")),
-            }
-        }
-        if let Some(slot) = watch_slot
-            && fds[slot].revents != 0
-            && let Some(w) = &watch
-        {
-            match w.read_watch_events(&mut watch_buffer) {
-                Ok(events) if !events.is_empty() => {
-                    // Our own inventory writes come back here too; a
-                    // reload is idempotent, so that is merely cheap.
-                    // Converge regardless: `Interfaces\<ifid> Enabled`
-                    // is read during the pass, not held in Config.
-                    let fresh = config::load();
-                    if fresh != netd.config {
-                        log::info(format_args!("configuration changed"));
-                        netd.control =
-                            control::ControlObject::new(fresh.control_security.as_deref());
-                        if fresh.rules != netd.config.rules
-                            || fresh.profiles != netd.config.profiles
-                        {
-                            netd.take_generation(&fresh);
-                        }
-                        netd.config = fresh;
-                    }
-                    converge = true;
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn(format_args!("registry watch: {e}; re-arming"));
-                    watch = config::watch().ok();
-                }
-            }
-        }
-        if let Some(slot) = absorber_slot
-            && fds[slot].revents != 0
-            && let Some(a) = &absorber
-        {
-            a.drain();
-        }
-        for (index, slot) in &dhcp_slots {
-            if fds[*slot].revents == 0 {
-                continue;
-            }
-            if let Some(i) = netd.interfaces.get_mut(index) {
-                let messages = i
-                    .dhcp
-                    .as_ref()
-                    .map(|d| d.socket.receive())
-                    .unwrap_or_default();
-                for m in messages {
-                    let actions = i
-                        .dhcp
-                        .as_mut()
-                        .map(|d| d.client.receive(now, &m))
-                        .unwrap_or_default();
-                    reconcile |= i.perform(actions, now);
-                }
-            }
-        }
-        for (index, slot) in &ndp_slots {
-            if fds[*slot].revents == 0 {
-                continue;
-            }
-            if let Some(i) = netd.interfaces.get_mut(index) {
-                let messages = i
-                    .ndp
-                    .as_ref()
-                    .map(|n| n.socket.receive())
-                    .unwrap_or_default();
-                for (source, hops, body) in messages {
-                    // RFC 4861 §6.1.2: a hop limit under 255 crossed a
-                    // router, and a non-link-local source is not a router
-                    // on this link. Both are spoofs; both are dropped.
-                    if hops != 255 || !is_v6_link_local(&source) {
-                        continue;
-                    }
-                    let actions = i
-                        .ndp
-                        .as_mut()
-                        .map(|n| n.engine.receive(now, source, &body))
-                        .unwrap_or_default();
-                    // Converge, not merely reconcile: a changed RA can call
-                    // for starting DHCPv6, which is a converge decision.
-                    converge |= i.perform_ndp(actions);
-                }
-            }
-        }
-        for (index, slot) in &dhcp6_slots {
-            if fds[*slot].revents == 0 {
-                continue;
-            }
-            if let Some(i) = netd.interfaces.get_mut(index) {
-                let messages = i
-                    .dhcp6
-                    .as_ref()
-                    .map(|d| d.socket.receive())
-                    .unwrap_or_default();
-                for m in messages {
-                    let actions = i
-                        .dhcp6
-                        .as_mut()
-                        .map(|d| d.client.receive(now, &m))
-                        .unwrap_or_default();
-                    reconcile |= i.perform_dhcp6(actions);
-                }
-            }
-        }
-        // Timers, for every client.
-        for i in netd.interfaces.values_mut() {
-            let actions = i
-                .dhcp
-                .as_mut()
-                .map(|d| d.client.tick(now))
-                .unwrap_or_default();
-            reconcile |= i.perform(actions, now);
-            let actions = i
-                .ndp
-                .as_mut()
-                .map(|n| n.engine.tick(now))
-                .unwrap_or_default();
-            converge |= i.perform_ndp(actions);
-            let actions = i
-                .dhcp6
-                .as_mut()
-                .map(|d| d.client.tick(now))
-                .unwrap_or_default();
-            reconcile |= i.perform_dhcp6(actions);
-        }
-        clients.expire(Instant::now());
-        for (fd, slot) in control_slots {
-            if fds[slot].revents != 0 {
-                if let Some((stream, request)) = clients.service(fd, Instant::now()) {
-                    if let Some((stream, reply)) = netd.handle_control(stream, request) {
-                        clients.reply(stream, &reply, Instant::now());
-                    }
-                }
-            }
-        }
-        if fds[1].revents != 0 {
-            clients.accept(&listener, Instant::now());
-        }
-        if netd.interfaces.values().any(|i| i.rejudge) {
-            converge = true;
-        }
-
-        if converge {
-            netd.converge(now);
-        } else if reconcile {
-            netd.reconcile_all();
-            netd.apply_hostname();
-            netd.publish();
-        }
-    }
+    event_loop::run(netd, listener, absorber, watch)
 }
 
 #[cfg(test)]

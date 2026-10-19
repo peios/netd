@@ -11,16 +11,14 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::os::fd::{AsRawFd, RawFd};
 
 use netlink_packet_core::{
-    NLM_F_ACK, NLM_F_APPEND, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
-    NetlinkHeader, NetlinkMessage, NetlinkPayload,
+    NLM_F_ACK, NLM_F_APPEND, NLM_F_CREATE, NLM_F_DUMP, NLM_F_DUMP_INTR, NLM_F_EXCL, NLM_F_REPLACE,
+    NLM_F_REQUEST, NetlinkHeader, NetlinkMessage, NetlinkPayload,
 };
 use netlink_packet_route::address::{
     AddressAttribute, AddressFlags, AddressHeader, AddressHeaderFlags, AddressMessage,
     AddressScope, CacheInfo,
 };
-use netlink_packet_route::link::{
-    LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage,
-};
+use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkHeader, LinkLayerType, LinkMessage};
 use netlink_packet_route::route::{
     RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteProtocol, RouteScope, RouteType,
 };
@@ -124,37 +122,16 @@ impl LinuxRtnl {
     ) -> io::Result<()> {
         let mut buf = vec![0u8; 65536];
         loop {
-            let n = match self.socket.recv(&mut &mut buf[..], 0) {
+            let n = match self.socket.recv(&mut &mut buf[..], libc::MSG_TRUNC) {
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             };
-            let mut offset = 0;
-            while offset < n {
-                let bytes = &buf[offset..n];
-                let message = NetlinkMessage::<RouteNetlinkMessage>::deserialize(bytes)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-                let length = message.header.length as usize;
-                if length == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "zero-length netlink message",
-                    ));
-                }
-                if message.header.sequence_number == sequence {
-                    match message.payload {
-                        NetlinkPayload::Done(_) => return Ok(()),
-                        NetlinkPayload::Error(e) => {
-                            return match e.code {
-                                None => Ok(()),
-                                Some(code) => Err(io::Error::from_raw_os_error(-code.get())),
-                            };
-                        }
-                        NetlinkPayload::InnerMessage(m) => each(m),
-                        _ => {}
-                    }
-                }
-                offset += length;
+            if n > buf.len() {
+                return Err(invalid_reply("truncated netlink datagram"));
+            }
+            if decode_reply(&buf[..n], sequence, &mut each)? {
+                return Ok(());
             }
         }
     }
@@ -482,5 +459,109 @@ impl Rtnl for LinuxRtnl {
 impl AsRawFd for LinuxRtnl {
     fn as_raw_fd(&self) -> RawFd {
         self.events.as_raw_fd()
+    }
+}
+
+fn invalid_reply(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+/// Decode one complete datagram; only a successful DONE/ACK completes the request.
+fn decode_reply(
+    bytes: &[u8],
+    sequence: u32,
+    each: &mut impl FnMut(RouteNetlinkMessage),
+) -> io::Result<bool> {
+    if bytes.is_empty() {
+        return Err(invalid_reply("empty netlink reply"));
+    }
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let message = NetlinkMessage::<RouteNetlinkMessage>::deserialize(&bytes[offset..])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let length = message.header.length as usize;
+        if length < 16 || length > bytes.len() - offset {
+            return Err(invalid_reply("invalid netlink message length"));
+        }
+        if message.header.sequence_number == sequence {
+            if message.header.flags & NLM_F_DUMP_INTR != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "interrupted netlink dump",
+                ));
+            }
+            match message.payload {
+                NetlinkPayload::Done(done) => {
+                    check_reply_code(done.code)?;
+                    return Ok(true);
+                }
+                NetlinkPayload::Error(error) => {
+                    check_reply_code(error.code.map_or(0, |code| code.get()))?;
+                    return Ok(true);
+                }
+                NetlinkPayload::InnerMessage(message) => each(message),
+                NetlinkPayload::Overrun(_) => return Err(invalid_reply("netlink receive overrun")),
+                _ => {}
+            }
+        }
+        // Netlink messages are padded to four bytes; the final message can omit padding.
+        offset += (length + 3) & !3;
+    }
+    Ok(false)
+}
+
+fn check_reply_code(code: i32) -> io::Result<()> {
+    if code == 0 {
+        return Ok(());
+    }
+    let errno = code
+        .checked_neg()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| invalid_reply("invalid netlink error code"))?;
+    Err(io::Error::from_raw_os_error(errno))
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+    use netlink_packet_core::DoneMessage;
+
+    fn done(code: i32, flags: u16, sequence: u32) -> Vec<u8> {
+        let mut payload = DoneMessage::default();
+        payload.code = code;
+        let mut header = NetlinkHeader::default();
+        header.flags = flags;
+        header.sequence_number = sequence;
+        let mut message =
+            NetlinkMessage::<RouteNetlinkMessage>::new(header, NetlinkPayload::Done(payload));
+        message.finalize();
+        let mut bytes = vec![0; message.buffer_len()];
+        message.serialize(&mut bytes);
+        bytes
+    }
+
+    #[test]
+    fn interrupted_dump_is_not_a_complete_snapshot() {
+        let error = decode_reply(&done(0, NLM_F_DUMP_INTR, 7), 7, &mut |_| {}).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(!decode_reply(&done(0, NLM_F_DUMP_INTR, 8), 7, &mut |_| {}).unwrap());
+        assert!(decode_reply(&done(0, 0, 7), 7, &mut |_| {}).unwrap());
+    }
+
+    #[test]
+    fn failed_done_message_is_not_success() {
+        assert_eq!(
+            decode_reply(&done(-libc::ENOBUFS, 0, 7), 7, &mut |_| {})
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::ENOBUFS)
+        );
+        assert_eq!(
+            decode_reply(&done(i32::MIN, 0, 7), 7, &mut |_| {})
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(decode_reply(&done(0, 0, 7)[..10], 7, &mut |_| {}).is_err());
     }
 }

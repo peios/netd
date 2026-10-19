@@ -18,6 +18,9 @@ use netd_core::NETD_STATE_DIR;
 
 use crate::log;
 
+#[path = "ipv6_datagram.rs"]
+mod datagram;
+
 /// `ICMP6_FILTER` (RFC 3542): absent from the libc crate, value 1 on Linux.
 const ICMP6_FILTER: libc::c_int = 1;
 
@@ -74,45 +77,19 @@ impl Icmp6Socket {
     /// Every pending message: source, received hop limit, ICMPv6 body.
     pub fn receive(&self) -> Vec<(Ipv6Addr, u8, Vec<u8>)> {
         let mut out = Vec::new();
-        let mut buf = [0u8; 4096];
-        let mut control = [0u8; 64];
         loop {
-            // SAFETY: zeroed msghdr then fully initialised before use; the
-            // buffers live for the call.
-            let (n, source, hops) = unsafe {
-                let mut name: libc::sockaddr_in6 = zeroed();
-                let mut iov = libc::iovec {
-                    iov_base: buf.as_mut_ptr().cast(),
-                    iov_len: buf.len(),
-                };
-                let mut msg: libc::msghdr = zeroed();
-                msg.msg_name = (&mut name as *mut libc::sockaddr_in6).cast();
-                msg.msg_namelen = size_of::<libc::sockaddr_in6>() as u32;
-                msg.msg_iov = &mut iov;
-                msg.msg_iovlen = 1;
-                msg.msg_control = control.as_mut_ptr().cast();
-                msg.msg_controllen = control.len();
-                let n = libc::recvmsg(self.fd.as_raw_fd(), &mut msg, 0);
-                if n < 0 {
-                    let e = io::Error::last_os_error();
-                    if e.kind() == io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    break;
+            match datagram::receive(self.fd(), true) {
+                Ok(packet) => out.push((packet.source, packet.hops.unwrap_or(0), packet.body)),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::InvalidData
+                    ) =>
+                {
+                    continue;
                 }
-                let mut hops: u8 = 0;
-                let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
-                while !cmsg.is_null() {
-                    if (*cmsg).cmsg_level == libc::IPPROTO_IPV6
-                        && (*cmsg).cmsg_type == libc::IPV6_HOPLIMIT
-                    {
-                        hops = *libc::CMSG_DATA(cmsg).cast::<i32>() as u8;
-                    }
-                    cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
-                }
-                (n as usize, Ipv6Addr::from(name.sin6_addr.s6_addr), hops)
-            };
-            out.push((source, hops, buf[..n].to_vec()));
+                Err(_) => break,
+            }
         }
         out
     }
@@ -176,19 +153,19 @@ impl Dhcp6Socket {
 
     pub fn receive(&self) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
-        let mut buf = [0u8; 4096];
         loop {
-            // SAFETY: `buf` is a live writable buffer of the stated length.
-            let n =
-                unsafe { libc::recv(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
-            if n < 0 {
-                let e = io::Error::last_os_error();
-                if e.kind() == io::ErrorKind::Interrupted {
+            match datagram::receive(self.fd(), false) {
+                Ok(packet) => out.push(packet.body),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::InvalidData
+                    ) =>
+                {
                     continue;
                 }
-                break;
+                Err(_) => break,
             }
-            out.push(buf[..n as usize].to_vec());
         }
         out
     }
@@ -257,27 +234,29 @@ fn send_to(fd: &OwnedFd, payload: &[u8], to: Ipv6Addr, port: u16, scope: u32) ->
 /// The machine's secret for stable-privacy addresses (RFC 7217), created
 /// once and kept beside the DUID. Losing it renumbers the machine; that is
 /// all.
-pub fn secret() -> [u8; 32] {
+pub fn secret() -> io::Result<[u8; 32]> {
     let path = PathBuf::from(NETD_STATE_DIR).join("secret");
     if let Ok(bytes) = std::fs::read(&path)
         && bytes.len() == 32
     {
         let mut s = [0u8; 32];
         s.copy_from_slice(&bytes);
-        return s;
+        return Ok(s);
     }
-    let mut s = [0u8; 32];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = f.read_exact(&mut s);
-    }
+    let s = read_entropy(std::fs::File::open("/dev/urandom")?)?;
     if let Err(e) = std::fs::create_dir_all(NETD_STATE_DIR).and_then(|_| std::fs::write(&path, s)) {
         log::warn(format_args!(
             "could not persist the address secret at {}: {e}",
             path.display()
         ));
     }
-    s
+    Ok(s)
+}
+
+fn read_entropy(mut source: impl io::Read) -> io::Result<[u8; 32]> {
+    let mut secret = [0; 32];
+    source.read_exact(&mut secret)?;
+    Ok(secret)
 }
 
 /// Switch the kernel's own RA processing off, everywhere: netd is the RA
@@ -316,5 +295,19 @@ fn write_sysctl(conf: &str) {
         if conf == "all" {
             log::warn(format_args!("could not set {path}: {e}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_entropy_never_produces_an_address_secret() {
+        assert_eq!(
+            read_entropy(&[9u8; 31][..]).unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        assert_eq!(read_entropy(&[9u8; 32][..]).unwrap(), [9; 32]);
     }
 }
