@@ -28,7 +28,7 @@ net \- inspect and control the Peios network manager
 is the stateless operator client for
 .BR netd (8).
 Network configuration remains in the registry below
-.BR Machine\\System\\Network ;
+.BR Machine\eSystem\eNetwork ;
 this command observes the effective state and asks the daemon to perform
 bounded control operations.
 .SH COMMANDS
@@ -69,7 +69,7 @@ network context.
 .TP
 .BI "policy wait " "[timeout-seconds]"
 Wait until every change to
-.B Machine\\System\\Network
+.B Machine\eSystem\eNetwork
 made before the command started is in force in the kernel.
 A registry write that has returned is delivered, not yet enforced; the
 engine re-reads the key a moment later.

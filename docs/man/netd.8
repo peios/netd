@@ -7,7 +7,7 @@ netd \- reconcile Peios network state from the registry
 .B netd
 is the Peios network manager and the executor of Peios Network Policy's
 interface layer. It reads desired state below
-.BR Machine\\System\\Network ,
+.BR Machine\eSystem\eNetwork ,
 observes links over rtnetlink, and owns links, addresses, routes, DHCP, router
 discovery, and the network inventory for interfaces policy tells it to join.
 .PP
@@ -38,7 +38,7 @@ Persistent network and interface identity state.
 Machine-readable registry reference installed by the package.
 .SH SECURITY
 Query and control operations are authorized against the descriptor stored in
-.B Machine\\System\\Network ControlSecurity.
+.B Machine\eSystem\eNetwork ControlSecurity.
 The compiled default allows everyone to query and restricts control to SYSTEM
 and Administrators. Registry Status keys written by netd are protected from
 operator writes.
