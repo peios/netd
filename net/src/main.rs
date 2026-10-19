@@ -7,10 +7,10 @@
 
 mod policy;
 
-use std::os::unix::net::UnixStream;
+use std::time::Duration;
 use std::process::ExitCode;
 
-use libnetd::{CONTROL_SOCKET_PATH, Level, NETWORK_KEY, Reply, Request, Status};
+use netd_client::{Client, Level, NETWORK_KEY, Status};
 use peios::registry::{Key, KeyAccess, OpenFlags, ValueType};
 
 fn usage() -> ExitCode {
@@ -25,18 +25,16 @@ fn version() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn call(request: &Request) -> Result<Reply, String> {
-    let mut stream = UnixStream::connect(CONTROL_SOCKET_PATH)
-        .map_err(|e| format!("cannot reach netd at {CONTROL_SOCKET_PATH}: {e}"))?;
-    libnetd::call(&mut stream, request).map_err(|e| e.to_string())
+/// The daemon bounds pending requests to two seconds; allow scheduling overhead
+/// without letting an unavailable daemon stall the operator command indefinitely.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn client() -> Result<Client, String> {
+    Client::system(CONTROL_TIMEOUT).map_err(|error| error.to_string())
 }
 
 fn status() -> Result<Status, String> {
-    match call(&Request::Status)? {
-        Reply::Status(s) => Ok(s),
-        Reply::Error(e) => Err(e),
-        Reply::Ok | Reply::Snapshot(_) => Err("unexpected reply".into()),
-    }
+    client()?.status().map_err(|error| error.to_string())
 }
 
 fn print_status(s: &Status) {
@@ -292,6 +290,16 @@ fn wait(level: Level, timeout: u64) -> ExitCode {
     }
 }
 
+fn command_result(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("net: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -307,24 +315,12 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        ["renew", interface] => match call(&Request::Renew {
-            interface: (*interface).to_owned(),
-        }) {
-            Ok(Reply::Ok) => ExitCode::SUCCESS,
-            Ok(Reply::Error(e)) | Err(e) => {
-                eprintln!("net: {e}");
-                ExitCode::FAILURE
-            }
-            Ok(Reply::Status(_) | Reply::Snapshot(_)) => ExitCode::FAILURE,
-        },
-        ["reconcile"] => match call(&Request::Reconcile) {
-            Ok(Reply::Ok) => ExitCode::SUCCESS,
-            Ok(Reply::Error(e)) | Err(e) => {
-                eprintln!("net: {e}");
-                ExitCode::FAILURE
-            }
-            Ok(Reply::Status(_) | Reply::Snapshot(_)) => ExitCode::FAILURE,
-        },
+        ["renew", interface] => command_result(
+            client().and_then(|client| client.renew(interface).map_err(|error| error.to_string())),
+        ),
+        ["reconcile"] => command_result(
+            client().and_then(|client| client.reconcile().map_err(|error| error.to_string())),
+        ),
         ["rules"] => rules(),
         ["policy"] => policy::show(),
         ["policy", "wait"] => policy::wait(std::time::Duration::from_secs(10)),

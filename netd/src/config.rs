@@ -4,15 +4,15 @@
 //! `Machine\System\Network` is PNP's key. netd reads three things from it:
 //! the machine-level values (`Hostname`, `ControlSecurity`, `Duid`), the
 //! interface layer `Rules\Interface`, and the profile tree `Profiles\`.
-//! Both trees are lowered to [`RawKey`] here and built by libnetd's
+//! Both trees are lowered to [`RawKey`] here and built by netd_core's
 //! `policy`, so that everything with a law in it is testable without a
 //! registry.
 //!
 //! A malformed generation is refused as a whole by the builder; this module
 //! never guesses at a value. A missing root means "no configuration".
 
-use libnetd::NETWORK_KEY;
-pub use libnetd::raw::{RawKey, RawValue};
+use netd_core::NETWORK_KEY;
+pub use netd_core::raw::{RawKey, RawValue};
 use peios::registry::{Key, KeyAccess, OpenFlags, RegValue, ValueType};
 
 use crate::log;
@@ -172,7 +172,7 @@ pub fn load() -> Config {
         ));
         return config;
     };
-    config.hostname = read_sz(&root, libnetd::hostname::HOSTNAME_VALUE);
+    config.hostname = read_sz(&root, netd_core::hostname::HOSTNAME_VALUE);
     config.control_security = read(&root, "ControlSecurity")
         .filter(|v| v.ty == ValueType::BINARY && !v.data.is_empty())
         .map(|v| v.data);

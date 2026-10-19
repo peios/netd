@@ -1,0 +1,171 @@
+load("//build:checks.bzl", "host_test")
+load("//packages:package.bzl", "package_store")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "BUILD.bazel",
+    "Cargo.toml",
+    "Cargo.lock",
+])
+
+filegroup(
+    name = "rust-sources",
+    srcs = ["//" + name + ":sources" for name in [
+        "netd-core",
+        "netd-abi",
+        "libnetd",
+        "netd-client",
+        "dhcp4",
+        "dhcp6",
+        "ndp",
+        "netd",
+        "net",
+    ]],
+)
+
+filegroup(
+    name = "artifacts",
+    srcs = [
+        "//libnetd:shared",
+        "//net",
+        "//netd",
+    ],
+)
+
+filegroup(
+    name = "build-files",
+    srcs = [
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "//build:BUILD.bazel",
+        "//build:starlark",
+        "//packages:build-files",
+        "//tools:BUILD.bazel",
+        "//vendor/ppk:BUILD.bazel",
+    ] + ["//" + name + ":BUILD.bazel" for name in [
+        "netd-core",
+        "netd-abi",
+        "libnetd",
+        "netd-client",
+        "dhcp4",
+        "dhcp6",
+        "ndp",
+        "netd",
+        "net",
+    ]],
+)
+
+genrule(
+    name = "build-format-check",
+    srcs = [":build-files"],
+    outs = ["build-format-check.stamp"],
+    cmd = "$(execpath @buildifier//file) -mode=check -lint=warn $(execpaths :build-files) && touch $@",
+    tools = ["@buildifier//file"],
+)
+
+filegroup(
+    name = "package-data",
+    srcs = [
+        "Cargo.lock",
+        "Cargo.toml",
+        "LICENSE",
+        "//libnetd:headers",
+        "//packages:definitions",
+        "//vendor:sources",
+    ] + glob([
+        "docs/*.regman",
+        "docs/*.evman",
+        "docs/man/*",
+        "registry.d/*.reg",
+        "third-party/*",
+    ]) + ["//" + name + ":Cargo.toml" for name in [
+        "netd-core",
+        "netd-abi",
+        "libnetd",
+        "netd-client",
+        "dhcp4",
+        "dhcp6",
+        "ndp",
+        "netd",
+        "net",
+    ]],
+)
+
+filegroup(
+    name = "package-sources",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "**/.*/**",
+            "**/.*",
+            ".git",
+            ".git/**",
+            "bazel-*",
+            "bazel-*/**",
+            "target/**",
+            "fuzz/target/**",
+            "docs/archive/**",
+            "out/**",
+            ".ci-sdk/**",
+            "**/__pycache__/**",
+            "**/*.pyc",
+            "docs/learn/dist/**",
+            "pekit.toml",
+            "packages.pekit/**",
+            "packaging/**",
+        ],
+    ) + glob(
+        [
+            ".github/**",
+        ],
+        allow_empty = True,
+    ) + [
+        ".bazelignore",
+        ".bazelrc",
+        ".bazelversion",
+        ".gitattributes",
+        ".gitignore",
+        ":package-data",
+        ":rust-sources",
+        "//build:sources",
+        "//packages:sources",
+        "//tools:sources",
+        "//vendor:sources",
+        "//vendor/ppk:sources",
+    ] + ["//" + name + ":BUILD.bazel" for name in [
+        "netd-core",
+        "netd-abi",
+        "libnetd",
+        "netd-client",
+        "dhcp4",
+        "dhcp6",
+        "ndp",
+        "netd",
+        "net",
+    ]],
+)
+
+package_store(
+    name = "packages",
+    packages = ["//packages:all"],
+)
+
+host_test(
+    name = "kernel-inputs-test",
+    size = "small",
+    command = "exec python3 tools/update-kernel-inputs.py check --bazel-inputs",
+    data = [
+        "//tools:update-kernel-inputs.py",
+        "//vendor:sources",
+    ],
+    tags = [
+        "external",
+        "no-remote",
+    ],
+)
+
+alias(
+    name = "api-docs",
+    actual = "//netd-client:api-docs",
+)

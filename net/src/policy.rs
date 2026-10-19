@@ -10,7 +10,7 @@
 //! after its write.
 //!
 //! The status ioctl of `/dev/peios-ntfe` is the whole interface used here;
-//! the layout is `struct peios_ntfe_status` (pkm/uapi/pkm/ntfe.h), read as
+//! the layout is `struct peios_ntfe_status` (<pkm/ntfe.h> in the recorded kernel snapshot), read as
 //! the array of u64 it is.
 
 use std::fs::File;

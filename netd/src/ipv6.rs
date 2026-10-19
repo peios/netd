@@ -14,7 +14,7 @@ use std::net::Ipv6Addr;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
-use libnetd::NETD_STATE_DIR;
+use netd_core::NETD_STATE_DIR;
 
 use crate::log;
 

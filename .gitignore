@@ -5,3 +5,6 @@
 /fuzz/corpus
 /fuzz/fuzz-*.log
 __pycache__/
+/bazel-*
+/.ci-sdk
+/docs/learn/dist

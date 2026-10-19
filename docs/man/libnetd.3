@@ -1,0 +1,67 @@
+.TH LIBNETD 3 "" "Peios" "Library Functions"
+.SH NAME
+libnetd \- netd client and configuration library
+.SH SYNOPSIS
+.nf
+#include <peios/netd.h>
+
+cc program.c $(pkg-config --cflags --libs netd)
+.fi
+.SH DESCRIPTION
+.B libnetd.so.1
+provides daemon status, renewal and reconciliation requests, DNS snapshot
+subscriptions, and validation of hostnames, profiles, and interface policies.
+The public declarations and structure layouts are in
+.BR peios/netd.h
+and
+.BR peios/netd-types.h .
+.PP
+Configuration operations use the kernel policy engine snapshot recorded in
+.BR vendor/kernel/ORIGIN.json .
+They evaluate supplied configuration without modifying the registry or
+changing network state.
+Daemon operations use the existing netd control socket and its access rules.
+.SH OWNERSHIP
+Each operation returns an owned result handle, including on failure.
+Call
+.B peios_netd_result_error
+before inspecting the result payload.
+Zero means success; other values are POSIX error numbers.
+The functions return errors through the result rather than setting
+.BR errno .
+.PP
+Call
+.B peios_netd_result_free
+exactly once for every result.
+Pointers returned by result getters are borrowed views and remain valid
+until the owning result is freed.
+Copy data that must outlive the result.
+Input spans must point to valid storage for the duration of the call.
+.PP
+A successful subscription call also transfers a separate subscription handle.
+Free it with
+.BR peios_netd_subscription_free .
+Result destruction does not destroy the subscription.
+.SH TIMEOUTS
+Daemon operations accept a positive timeout in milliseconds.
+The deadline covers connection, request transmission, and response reception.
+The library does not replay failed requests.
+.PP
+A subscription timeout retains a partial frame for the next call.
+Other receive errors close the connection; subsequent reads return
+.BR ENOTCONN .
+Replies larger than the protocol frame limit are rejected.
+.SH THREAD SAFETY
+Result views are immutable and can be read concurrently while the result
+remains alive.
+Synchronize destruction with every reader.
+Use one caller at a time for each subscription, including destruction.
+.SH ERRORS
+Malformed input, invalid UTF-8, invalid option tags, and excessive input
+sizes produce an error result.
+An allocation failure aborts the process.
+Passing dangling pointers, invalid handles, or a span larger than its
+allocated storage violates the C interface contract.
+.SH SEE ALSO
+.BR net (1),
+.BR netd (8)

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use dhcp4::packet::{CLIENT_PORT, SERVER_PORT};
 use dhcp4::{Destination, Message};
-use libnetd::NETD_STATE_DIR;
+use netd_core::NETD_STATE_DIR;
 
 use crate::log;
 

@@ -27,9 +27,9 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use dhcp4::{Action, Client, Config as DhcpConfig, Lease};
-use libnetd::policy::{self, Judgment, Outcome, Policy};
-use libnetd::profile::{OnExpiry, Profile};
-use libnetd::{DnsScope, InterfaceStatus, LeaseStatus, Level, Reply, Request, Snapshot, Status};
+use netd_core::policy::{self, Judgment, Outcome, Policy};
+use netd_core::profile::{OnExpiry, Profile};
+use netd_core::{DnsScope, InterfaceStatus, LeaseStatus, Level, Reply, Request, Snapshot, Status};
 use peios::registry::Key;
 
 use config::Config;
@@ -517,7 +517,7 @@ impl Netd {
             .config
             .hostname
             .as_deref()
-            .and_then(|name| libnetd::hostname::check(name).ok());
+            .and_then(|name| netd_core::hostname::check(name).ok());
         for interface in self.interfaces.values_mut() {
             let Some((dhcp4, send_hostname)) = interface
                 .profile()
@@ -735,7 +735,7 @@ impl Netd {
             self.hostname_refused = None;
             return;
         };
-        let name = match libnetd::hostname::check(&name) {
+        let name = match netd_core::hostname::check(&name) {
             Ok(name) => {
                 self.hostname_refused = None;
                 name
@@ -1247,7 +1247,7 @@ fn notify_ready() {
 /// the complete set against this service and waits for membership. netd
 /// supplies the implications; peinit knows no ordering of these names.
 /// It travels on the notify socket netd already has rather than over
-/// netd's own control socket, so PID 1 needs no knowledge of libnetd and
+/// netd's own control socket, so PID 1 needs no knowledge of netd_core and
 /// no subscription to maintain.
 ///
 /// Sent on every change and only on a change. The channel is lossy by
@@ -1668,7 +1668,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod dns_tests {
     use super::*;
-    use libnetd::profile::DnsConfig;
+    use netd_core::profile::DnsConfig;
 
     // Plain data only: no clients, sockets, registry or host interfaces.
     fn interface(servers: &[&str], domains: &[&str], offered: bool) -> Interface {

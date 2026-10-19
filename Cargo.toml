@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["libnetd", "dhcp4", "dhcp6", "ndp", "netd", "net"]
+members = ["netd-core", "netd-abi", "libnetd", "netd-client", "dhcp4", "dhcp6", "ndp", "netd", "net"]
 
 # netd is its own workspace root, like authd and peios-rs.
 #
-#   libnetd  the control wire: paths, readiness levels, request/response codec;
+#   netd-core  the control wire: paths, readiness levels, request/response codec;
 #            and the laws of netd's configuration, pure: the hostname, the
 #            profile vocabulary, and (feature `policy`) the interface layer
 #            as netd builds and judges it, for a program that checks a change
@@ -32,11 +32,9 @@ libc = "0.2"
 peios = { git = "https://github.com/peios/peios-rs.git", rev = "f8c84930f2b71763bcf0550df0b1420a0f63b21e", package = "peios" }
 # The interface layer is a PNP rules forest; netd builds and judges it with
 # the kernel's own rules engine so the two cannot disagree about a rule.
-# Pin the revision of the kernel netd runs beside (pkm v0.21.0-alpha8): the
-# same engine, so the interface layer and the packet layers agree. The
-# package build vendors this source, so a build never consults a sibling
-# PKM checkout.
-pnp-core = { git = "https://github.com/peios/pkm.git", rev = "17712f8fbf4889696c1c919f17409bc15f16efa0" }
+# Exact kernel-owned inputs and licenses are recorded in vendor/kernel/ORIGIN.json.
+pnp-core = { path = "vendor/kernel/peios/rust/pnp-core" }
+
 
 [profile.release]
 debug = 2

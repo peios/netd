@@ -1,0 +1,13 @@
+[package]
+name = "netd-client"
+description = "Safe Rust wrappers for libnetd.so."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+netd-abi = { path = "../netd-abi" }
+netd-core = { path = "../netd-core" }
+libc.workspace = true

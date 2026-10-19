@@ -1,0 +1,25 @@
+{
+    "side_effects": ["man-db"],
+    "package": {
+        "name": "dev.peios.net",
+        "description": "Operator command for the Peios network manager",
+        "license": "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)",
+        "version": "0.1.8-1",
+        "architecture": "x86_64",
+        "license_class": "free",
+        "homepage": "https://github.com/peios/netd"
+    },
+    "dependencies": {
+        "dev.peios.libpeios": ">= 0.5.0",
+        "org.gnu.glibc": "*",
+        "org.gnu.gcc-libgcc": "*",
+        "dev.peios.libnetd": "= 0.1.8-1"
+    },
+    "files": {
+        "source:LICENSE": "usr/share/licenses/dev.peios.net/LICENSE",
+        "stage:licenses/net/**": "usr/share/licenses/dev.peios.net/third-party",
+        "stage:usr/bin/net": "usr/bin/net",
+        "stage:usr/share/man/man1/net.1.gz": "usr/share/man/man1/net.1.gz"
+    },
+    "executables": ["usr/bin/net"]
+}

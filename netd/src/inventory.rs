@@ -16,7 +16,7 @@
 
 use std::net::Ipv4Addr;
 
-use libnetd::{Level, NETWORK_KEY};
+use netd_core::{Level, NETWORK_KEY};
 use peios::registry::{CreateFlags, Disposition, Key, KeyAccess, SecInfo, ValueType};
 
 use crate::config::{format_hex, parse_hex};

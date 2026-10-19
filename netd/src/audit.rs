@@ -41,7 +41,7 @@ pub fn hostname_changed_payload(
     w.write_str("config")
         .write_map(2 + u32::from(previous.is_some()))
         .write_str("name")
-        .write_str(libnetd::hostname::HOSTNAME_VALUE)
+        .write_str(netd_core::hostname::HOSTNAME_VALUE)
         .write_str("text")
         .write_str(name);
     if let Some(previous) = previous {

@@ -12,6 +12,6 @@ name = "net"
 path = "src/main.rs"
 
 [dependencies]
-libnetd = { path = "../libnetd" }
+netd-client = { path = "../netd-client" }
 peios = { workspace = true }
 libc = { workspace = true }

@@ -15,7 +15,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use libnetd::{
+use netd_core::{
     CONTROL_SOCKET_PATH, NETD_RUN_DIR, NETWORK_ALL_ACCESS, NETWORK_CONTROL, NETWORK_QUERY, Reply,
     Request,
 };
@@ -222,7 +222,7 @@ enum State {
 
 enum Progress {
     Pending,
-    Request(Result<Request, libnetd::WireError>),
+    Request(Result<Request, netd_core::WireError>),
     Closed,
 }
 
@@ -318,9 +318,9 @@ impl Clients {
 impl Client {
     fn reply(&mut self, reply: &Reply, now: Instant) {
         let mut payload = reply.encode();
-        if payload.len() > libnetd::MAX_MESSAGE_BYTES {
+        if payload.len() > netd_core::MAX_MESSAGE_BYTES {
             payload =
-                Reply::Error(libnetd::WireError::TooLarge(payload.len()).to_string()).encode();
+                Reply::Error(netd_core::WireError::TooLarge(payload.len()).to_string()).encode();
         }
         let mut frame = (payload.len() as u32).to_le_bytes().to_vec();
         frame.extend(payload);
@@ -359,8 +359,8 @@ impl Client {
                 }
                 if buf.len() >= 4 {
                     let len = u32::from_le_bytes(buf[..4].try_into().expect("header")) as usize;
-                    if len > libnetd::MAX_MESSAGE_BYTES {
-                        return Progress::Request(Err(libnetd::WireError::TooLarge(len)));
+                    if len > netd_core::MAX_MESSAGE_BYTES {
+                        return Progress::Request(Err(netd_core::WireError::TooLarge(len)));
                     }
                     if buf.len() == 4 + len {
                         return Progress::Request(Request::decode(&buf[4..]));
@@ -432,7 +432,7 @@ mod io_tests {
         clients.reply(stream, &Reply::Ok, now);
         assert!(clients.service(ready, now).is_none());
         assert!(matches!(
-            Reply::decode(&libnetd::recv(&mut ready_peer).unwrap()),
+            Reply::decode(&netd_core::recv(&mut ready_peer).unwrap()),
             Ok(Reply::Ok)
         ));
         assert_eq!(clients.pending.len(), 2);
@@ -460,7 +460,7 @@ mod io_tests {
         assert!(clients.service(fd, now).is_none());
         assert_eq!(clients.fds()[0].1, libc::POLLOUT);
         clients.service(fd, now);
-        match Reply::decode(&libnetd::recv(&mut peer).unwrap()).unwrap() {
+        match Reply::decode(&netd_core::recv(&mut peer).unwrap()).unwrap() {
             Reply::Error(e) => assert_eq!(e, "message of 65537 bytes exceeds the ceiling"),
             _ => panic!("oversized request was accepted"),
         }
@@ -479,7 +479,7 @@ mod io_tests {
                 clients.service(fd, now);
             }
             assert!(matches!(
-                Reply::decode(&libnetd::recv(&mut peer).unwrap()),
+                Reply::decode(&netd_core::recv(&mut peer).unwrap()),
                 Ok(Reply::Error(_))
             ));
         }

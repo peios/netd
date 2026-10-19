@@ -12,7 +12,7 @@ name = "netd"
 path = "src/main.rs"
 
 [dependencies]
-libnetd = { path = "../libnetd", features = ["policy"] }
+netd-core = { path = "../netd-core", features = ["policy"] }
 dhcp4 = { path = "../dhcp4" }
 libc = { workspace = true }
 peios = { workspace = true }
@@ -24,7 +24,7 @@ netlink-sys = "0.9"
 # Interface identity: a UUID-shaped digest of bus path and MAC. Same choice
 # authd made for service SIDs; pure computation.
 sha1 = "0.10"
-# The interface layer is a PNP rules forest, built and judged by libnetd's
+# The interface layer is a PNP rules forest, built and judged by netd-core's
 # `policy`; netd makes the fact snapshot it is judged on. The revision is
 # the workspace's.
 pnp-core = { workspace = true }

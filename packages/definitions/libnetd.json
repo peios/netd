@@ -1,0 +1,22 @@
+{
+    "package": {
+        "name": "dev.peios.libnetd",
+        "version": "0.1.8-1",
+        "architecture": "x86_64",
+        "license": "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)",
+        "license_class": "free",
+        "description": "Shared client and configuration library for netd",
+        "homepage": "https://github.com/peios/netd"
+    },
+    "dependencies": {
+        "dev.peios.libpeios": ">= 0.5.8-1",
+        "org.gnu.glibc": "*",
+        "org.gnu.gcc-libgcc": "*"
+    },
+    "files": {
+        "source:LICENSE": "usr/share/licenses/dev.peios.libnetd/LICENSE",
+        "stage:licenses/libnetd/**": "usr/share/licenses/dev.peios.libnetd/third-party",
+        "stage:usr/lib/x86_64-linux-peios/libnetd.so.1": "usr/lib/x86_64-linux-peios/libnetd.so.1"
+    },
+    "executables": ["usr/lib/x86_64-linux-peios/libnetd.so.1"]
+}

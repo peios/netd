@@ -1,0 +1,75 @@
+load("@crates//:crates.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//build:checks.bzl", "shared_test")
+load("//build:version.bzl", "VERSION")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "BUILD.bazel",
+    "Cargo.toml",
+])
+
+filegroup(
+    name = "sources",
+    srcs = glob(
+        [
+            "src/**",
+            "tests/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+rust_library(
+    name = "netd-core",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "Cargo.toml",
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+    ],
+    crate_features = ["policy"],
+    crate_name = "netd_core",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    version = VERSION,
+    deps = ["//vendor:pnp-core"] + all_crate_deps(normal = True),
+)
+
+rust_test(
+    name = "tests-binary",
+    size = "small",
+    crate = ":netd-core",
+    tags = ["manual"],
+)
+
+shared_test(
+    name = "tests",
+    size = "small",
+    binary = ":tests-binary",
+    libraries = ["@peios_sdk//:library"],
+)
+
+rust_test(
+    name = "policy-boundaries-binary",
+    size = "small",
+    srcs = ["tests/policy_boundaries.rs"],
+    crate_root = "tests/policy_boundaries.rs",
+    edition = "2024",
+    tags = ["manual"],
+    deps = [
+        ":netd-core",
+        "//vendor:pnp-core",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+shared_test(
+    name = "policy-boundaries",
+    size = "small",
+    binary = ":policy-boundaries-binary",
+    libraries = ["@peios_sdk//:library"],
+)
