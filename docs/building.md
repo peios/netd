@@ -100,7 +100,7 @@ Use the Trail revision pinned in CI:
 
 ```sh
 tools/check-docs
-tools/check-docs --context ../panorama/docs
+tools/check-docs --context ../learn
 ```
 
 Component checks permit only the reviewed external-link diagnostics recorded
