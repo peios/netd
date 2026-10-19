@@ -1,0 +1,36 @@
+---
+title: "netd.hostname.changed"
+description: "netd changed the machine's hostname."
+---
+
+- **Event type:** `netd.hostname.changed`
+- **Defined in:** `netd.evman`
+- **Tier:** essential
+- **Gating:** none — every change netd makes to the kernel's hostname is
+  recorded
+- **Cardinality:** one record per occurrence
+
+netd changed the machine's hostname. The name is what other machines, log
+lines, and certificate requests know the machine by, so a change of it is
+always recorded.
+
+netd takes the name from `Machine\System\Network Hostname`, or else from a
+lease that offers one where the interface's profile accepts it, and passes it
+to the kernel. A call that leaves the kernel's name as it was, as when netd
+restarts on a machine that already has the name, records nothing. A name the
+kernel refuses is not a change and is not recorded.
+
+## Fields
+
+| Field | Type | Presence | Meaning |
+|---|---|---|---|
+| `config.name` | `str` | required | Always `Hostname`, the setting the name is held in, whether the value in force came from the registry or from a lease. |
+| `config.text` | `str` | required | The name now in force, as netd passed it to the kernel. |
+| `config.text-previous` | `str` | optional | The kernel's name before the change, as the kernel held it. On the first change after boot this is the kernel's own `(none)`. Absent when it could not be read. |
+| `subject.token.sid` | `bin.sid` | required | The principal that acted. When the change was made during the pass a `reconcile` request on netd's control socket asked for, the user of the requester's token; netd refuses a request whose user it cannot read. Otherwise netd changed the name on its own authority, after the registry value changed, when a lease arrived or at startup, and this is netd's own user, SYSTEM. Who wrote the registry value is LCS's to record, where the key's SACL audits the write. |
+
+Every record also carries the common event envelope. The payload does not
+repeat its header fields.
+
+The installed `netd.evman` fragment is the event interface reference. This
+page summarizes that event for readers of the netd documentation.

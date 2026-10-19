@@ -1,0 +1,3 @@
+title = "netd"
+short = "netd"
+description = "The network manager as built: how it reads the interface layer and profiles, reconciles links, addresses and routes, runs its DHCPv4, router-discovery and DHCPv6 clients, identifies networks, and publishes readiness and DNS facts."
