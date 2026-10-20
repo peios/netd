@@ -3,7 +3,7 @@ title: Configuring Profiles
 type: how-to
 description: Inspect the current network, prepare a profile and matching rule, apply changes live with a recovery plan, and verify the accepted addresses, routes and DNS.
 related:
-  - peios/advanced-peios/netd/introduction/overview
+  - peios/reference/netd/introduction/overview
   - peios/networking/the-net-command
 ---
 
@@ -98,7 +98,7 @@ Inherited `Dns.Offered` is a setting, not evidence that a server is available
 after address acquisition stops. Check `resolv status`. To pin DNS as well,
 set `Dns.Offered = 0` and `Dns.Servers` on this derived profile. The inherited
 link-local setting does not add a fallback beside a static address. See
-[desired state](~peios/advanced-peios/netd/interfaces/desired-state).
+[desired state](~peios/reference/netd/interfaces/desired-state).
 
 ## Verify the accepted settings
 
@@ -214,7 +214,7 @@ pins the default router instead of believing advertisements.
 The stable address survives reboots and reinstalls that keep `/var/state/netd`
 ; it is not derived directly from the MAC, and a different network sees an
 unrelated address. The [IPv6 address
-chapter](~peios/advanced-peios/netd/ipv6/addresses) documents derivation,
+chapter](~peios/reference/netd/ipv6/addresses) documents derivation,
 lifetimes and rotation.
 
 ## Prefer a cable over WiFi
@@ -338,9 +338,9 @@ Two equal-priority rules selecting different profiles also refuse a runtime
 reload when the conflict affects an existing interface. At startup, or for an
 interface that appears later, the tied interface is instead ignored and its
 warning names both rules. Make one rule unambiguously win. The
-[generation](~peios/advanced-peios/netd/the-interface-layer/building-a-generation)
+[generation](~peios/reference/netd/the-interface-layer/building-a-generation)
 and [interface
-judgment](~peios/advanced-peios/netd/the-interface-layer/judging-an-interface)
+judgment](~peios/reference/netd/the-interface-layer/judging-an-interface)
 chapters describe that distinction.
 
 A `JOIN` naming an existing but disabled profile abstains; its parent, another
@@ -351,9 +351,9 @@ values in it from validation.
 
 - [The net command](~peios/networking/the-net-command) — read back what netd
   did.
-- [Networking](~peios/advanced-peios/netd/introduction/overview) — the model behind these keys.
+- [Networking](~peios/reference/netd/introduction/overview) — the model behind these keys.
 - `regman 'Machine\System\Network'` — registry values and their meanings.
 - [The interface layer as netd runs
-  it](~peios/advanced-peios/netd/the-interface-layer/profiles), in the netd
+  it](~peios/reference/netd/the-interface-layer/profiles), in the netd
   technical reference manual — how netd reads these keys, builds a generation
   from them and judges each interface.

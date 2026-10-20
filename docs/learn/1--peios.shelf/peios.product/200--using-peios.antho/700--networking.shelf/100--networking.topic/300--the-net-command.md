@@ -3,7 +3,7 @@ title: The Net Command
 type: reference
 description: Read active interfaces and leases, compare rules and profiles, verify firewall acceptance, and choose a safe renew or reconcile command with the required access.
 related:
-  - peios/advanced-peios/netd/introduction/overview
+  - peios/reference/netd/introduction/overview
   - peios/networking/configuring-profiles
 ---
 
@@ -108,7 +108,7 @@ Use these commands when a restart is unnecessary. On restart, netd asks to
 reuse its remembered IPv4 address and keeps that address and applicable routes
 while revalidation is pending. A rejection or timeout discards that
 provisional state. It must reacquire offered DNS and IPv6 information. See
-[startup](~peios/advanced-peios/netd/the-daemon/startup).
+[startup](~peios/reference/netd/the-daemon/startup).
 
 Each control request has a 5-second total deadline, including connection,
 request transmission, and response reading. A timeout does not prove that a
@@ -136,11 +136,11 @@ denied request reports `access denied`.
 
 ## See also
 
-- [Networking](~peios/advanced-peios/netd/introduction/overview)
+- [Networking](~peios/reference/netd/introduction/overview)
 - [Configuring profiles](~peios/networking/configuring-profiles)
 - `regman 'Machine\System\Network'` on the machine, for every key netd reads
   and writes.
 - [netd's control
-  socket](~peios/advanced-peios/netd/the-control-socket/requests), in the netd
+  socket](~peios/reference/netd/the-control-socket/requests), in the netd
   technical reference manual: the requests behind every `net` command, and
   their replies.
