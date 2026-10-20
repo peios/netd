@@ -5,7 +5,7 @@ The repository also provides the `net` command, `libnetd.so.1`, and the safe
 Rust `netd-client` wrapper.
 
 - [Build, test, and package](docs/building.md)
-- [Learn documentation](docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book)
+- [Learn documentation](docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book)
 - [Command and library manuals](docs/man)
 - [Registry reference](docs/netd.regman) and [event reference](docs/netd.evman)
 

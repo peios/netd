@@ -3,192 +3,192 @@
   "files": [
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/1--overview.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/1--overview.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/1--overview.md",
       "sha256": "48a973dc5eb236bb2f9f87a1ce847ed521c949dd8d6f7a33c718307a724dc7d1"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/2--what-this-manual-covers.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/2--what-this-manual-covers.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/2--what-this-manual-covers.md",
       "sha256": "897abea2ab6834058348d361087ed17d7863500c99a05969109a9aa858feaf6e"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/3--terminology.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/3--terminology.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/1--introduction/3--terminology.md",
       "sha256": "36c3f4fdf810060df0755f8ccece1005c4d87066adacd74b01d0a5f091b0caff"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/10--the-net-command/1--commands.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/10--the-net-command/1--commands.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/10--the-net-command/1--commands.md",
       "sha256": "b72660536d15975aac0429ce32fca42476bd7666e21341c16d1239a171f9aac1"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/11--failure-modes/1--failure-modes.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/11--failure-modes/1--failure-modes.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/11--failure-modes/1--failure-modes.md",
       "sha256": "dae39d86030fe9718ff13b048e99f57934b37f1a907345d095c1133d67a3674e"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/1--startup.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/1--startup.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/1--startup.md",
       "sha256": "8e1990515b37679de033c4d9e38a7bb4888c22dfebdb7b12a3e0554068a37af3"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/2--the-loop.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/2--the-loop.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/2--the-loop.md",
       "sha256": "c4cbe4aafffde3a30a25e1022c8e01784ff7c7b4392aafe92d660d5ccabcfd10"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/3--reading-the-registry.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/3--reading-the-registry.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/2--the-daemon/3--reading-the-registry.md",
       "sha256": "0965fa923e4a3eaf981580bb79ddc6d12a4fc2ea9fcf4d15f2625d26bd0ef3dc"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/1--profiles.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/1--profiles.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/1--profiles.md",
       "sha256": "ea243a552b18b4a756ea723221661418c54df16efa4720ff45df8a4b74ff6725"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/2--building-a-generation.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/2--building-a-generation.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/2--building-a-generation.md",
       "sha256": "22d2d8ac34a90a9c20e449a6ed00d4a3313becf895f88a7dd69e33f9476c15ba"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/3--judging-an-interface.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/3--judging-an-interface.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/3--the-interface-layer/3--judging-an-interface.md",
       "sha256": "2c0ac46f67143fb6327ebaaa8ba7d03a2af594b0a75f92fd9ae2c45bcb440188"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/1--identity-and-carrier.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/1--identity-and-carrier.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/1--identity-and-carrier.md",
       "sha256": "924f565b16bb9ae5a0da7df228f30ea3fa188c7341ea78b2ee85b26e848dceea"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/2--desired-state.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/2--desired-state.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/2--desired-state.md",
       "sha256": "b08f6e45103f4a62012114d5d3798e770ec73b91c2ccd1c950a558dc7f366102"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/3--reconciliation.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/3--reconciliation.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/4--interfaces/3--reconciliation.md",
       "sha256": "ff6d3a889de0a1c1502a3797e7e27a870caafa550b338e6030ddee853952c19c"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/1--the-client.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/1--the-client.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/1--the-client.md",
       "sha256": "199a3550707c5ba9e4882353609979d78b781a51985b42213cf288be3bffd680"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/2--timers.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/2--timers.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/2--timers.md",
       "sha256": "9092c594e49e578fc0068ebd6ad24d5bb4e5bd2fe3cac6280a73547f811a504c"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/3--replies-and-leases.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/3--replies-and-leases.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/3--replies-and-leases.md",
       "sha256": "eedc8eac0c978b15d1baecfef463db054afd2d6b917aadabe7a5e03e8ba331a2"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/4--losing-a-lease.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/4--losing-a-lease.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/4--losing-a-lease.md",
       "sha256": "45d16733ae941d3c9f784fd64f71e37a620aee3016020fb7ff501dbc078a49b6"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/5--link-local-fallback.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/5--link-local-fallback.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/5--link-local-fallback.md",
       "sha256": "7f05f372f624f096f9c074fa00b5cad77dfd0ae072c2812989493bd8deacad5c"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/6--sockets.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/6--sockets.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/6--sockets.md",
       "sha256": "8d286a92e85a35c98c4a72ff90e5beb4f98c928f4d2adbf9b1198921b0a25961"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/7--identity-and-memory.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/7--identity-and-memory.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/5--dhcpv4/7--identity-and-memory.md",
       "sha256": "a6cf1f3c5df094ca61ca4287772bcf588588529fdf83558e229fb3d32b28cab4"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/1--router-discovery.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/1--router-discovery.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/1--router-discovery.md",
       "sha256": "4f4a508c4bba0c1af79eeb8bb8b0b6b9e778772def3bf99c27d29d9ae85555e2"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/2--addresses.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/2--addresses.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/2--addresses.md",
       "sha256": "27d5eedf116dbccca0b88d405355ad303944c213ddef21abc18094f151500693"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/3--dns-and-dhcpv6.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/3--dns-and-dhcpv6.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/6--ipv6/3--dns-and-dhcpv6.md",
       "sha256": "05273aa1eb5b30c4be6693908f246dc17597baae5ee13dfc90ced5f353c76110"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/1--identification.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/1--identification.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/1--identification.md",
       "sha256": "175bf5dd5563ac322ec6a6524b97c7bcad614b1b7051cdfdd2848e78b8172a99"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/2--records.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/2--records.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/7--networks/2--records.md",
       "sha256": "b805ecda818010ee5448865846b322716deaafb2205ab91a968c9730dedf9ba8"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/1--the-inventory.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/1--the-inventory.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/1--the-inventory.md",
       "sha256": "1a7ef6ccd13963cd8e79e2e6367b20a7ed2ed16585c4ce09ea193c00acf7d9a8"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/2--readiness.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/2--readiness.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/2--readiness.md",
       "sha256": "1f1969da02d7fb779f6a41f6dd21f3e4c5bfd46aa4d0dc1bc24a3aa71128e745"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/3--the-resolver-channel.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/3--the-resolver-channel.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/3--the-resolver-channel.md",
       "sha256": "c919c7f54dcac047bb4222a70899538119c7073f8d6d1f55ed6875a70368acb1"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/4--the-hostname.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/4--the-hostname.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/8--what-netd-publishes/4--the-hostname.md",
       "sha256": "5114ee62d58384821884b9e6ea69d589ee62b0421e26820cb57858f56c4aed8d"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/1--the-socket-and-its-object.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/1--the-socket-and-its-object.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/1--the-socket-and-its-object.md",
       "sha256": "e54de98f956ba85102a7df6dd18d87da2711cd8c8bb39c975a190e4da96c2c79"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/2--requests.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/2--requests.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/9--the-control-socket/2--requests.md",
       "sha256": "eb52c0def631162112754448a0996fe4e94f933d39de0b6168cee6e69146feaa"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/a1--constants.md",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/a1--constants.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/a1--constants.md",
       "sha256": "ebf0f0220dc2f3f71ab382289419f7e2ffd1093c0208353b6d1cf38089533d97"
     },
     {
       "source": "peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/trail.toml",
-      "destination": "docs/learn/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/trail.toml",
+      "destination": "docs/learn/1--peios.shelf/peios.product/3--advanced-peios.antho/300--trms.shelf/700--netd.book/trail.toml",
       "sha256": "25f23a9352aacc57b85cca76585b4477540968f8c49f3a498567e039e02ac12b"
     },
     {
       "source": "peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/200--configuring-profiles.md",
-      "destination": "docs/learn/peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/200--configuring-profiles.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/200--configuring-profiles.md",
       "sha256": "449709a928f34faf16cf61d3a8220b46c07be21219b5aaa110b50c63d7ef4188"
     },
     {
       "source": "peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/300--the-net-command.md",
-      "destination": "docs/learn/peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/300--the-net-command.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/0--using-peios.antho/100--fundamentals.shelf/300--networking.topic/300--the-net-command.md",
       "sha256": "1dd28a24b385522abfa3198bc956d67c441d2a1222759fc160470156e8b6b1e4"
     },
     {
       "source": "peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/1--netd-hostname-changed.md",
-      "destination": "docs/learn/peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/1--netd-hostname-changed.md",
+      "destination": "docs/learn/1--peios.shelf/peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/1--netd-hostname-changed.md",
       "sha256": "37ae2d84f59bbec27fd9d45bf01d803d14065b65d69392d67009bac3ce2eedca"
     },
     {
       "source": "peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/trail.toml",
-      "destination": "docs/learn/peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/trail.toml",
+      "destination": "docs/learn/1--peios.shelf/peios.product/0--using-peios.antho/600--reference.shelf/100--events.book/14--netd/trail.toml",
       "sha256": "6067d1676358c2f44ba096856304b05a873c42dd08160150768be4106bb45eb8"
     }
   ]
