@@ -17,6 +17,7 @@ Development builds run on x86-64 Linux. Running the daemon requires Peios
 kernel interfaces and libpeios; a successful host build does not qualify
 network behavior on a Peios system.
 
-Peios coding and documentation standards live in Panorama's PSC product.
+Peios coding and documentation standards live in the PSC product on Peios
+Learn.
 Imported kernel and package-writer snapshots keep their upstream style and
 recorded provenance. Maintained code and local build definitions follow PSC.
