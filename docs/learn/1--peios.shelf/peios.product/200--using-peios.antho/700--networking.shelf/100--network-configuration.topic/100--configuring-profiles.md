@@ -4,7 +4,7 @@ type: how-to
 description: Inspect the current network, prepare a profile and matching rule, apply changes live with a recovery plan, and verify the accepted addresses, routes and DNS.
 related:
   - peios/reference/netd/introduction/overview
-  - peios/networking/the-net-command
+  - peios/network-configuration/the-net-command
 ---
 
 Network configuration is two kinds of key under `Machine\System\Network`. A
@@ -16,7 +16,7 @@ the write — no restart, no reload command.
 
 Follow this order: inspect the active interface, prepare the profile, select
 it with a rule, then read back the accepted state. For desktop changes, use
-[Network Manager](~peios/system-tools/network-manager), whose profile editor
+[Network Manager](~peios/network-configuration/network-manager), whose profile editor
 shows inherited values and the interfaces a change affects.
 
 Read the registry value reference on the machine with
@@ -349,7 +349,7 @@ values in it from validation.
 
 ## Where to go next
 
-- [The net command](~peios/networking/the-net-command) — read back what netd
+- [The net command](~peios/network-configuration/the-net-command) — read back what netd
   did.
 - [Networking](~peios/reference/netd/introduction/overview) — the model behind these keys.
 - `regman 'Machine\System\Network'` — registry values and their meanings.

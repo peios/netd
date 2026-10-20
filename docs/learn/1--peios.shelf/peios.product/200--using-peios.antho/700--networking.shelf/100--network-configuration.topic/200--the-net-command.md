@@ -4,14 +4,14 @@ type: reference
 description: Read active interfaces and leases, compare rules and profiles, verify firewall acceptance, and choose a safe renew or reconcile command with the required access.
 related:
   - peios/reference/netd/introduction/overview
-  - peios/networking/configuring-profiles
+  - peios/network-configuration/configuring-profiles
 ---
 
 Use `net status` first. It shows what netd accepted and what is present on
 each interface. Use `net rules` and `net profiles` to compare that state with
 the registry configuration. On the desktop, the same starting point is
 [Network Manager's
-Overview](~peios/system-tools/network-manager#finding-the-right-view).
+Overview](~peios/network-configuration/network-manager#finding-the-right-view).
 
 ```sh
 net status
@@ -20,7 +20,7 @@ net profiles
 ```
 
 `net` does not write profile or rule configuration. Follow [Configuring
-profiles](~peios/networking/configuring-profiles) to change it, then return
+profiles](~peios/network-configuration/configuring-profiles) to change it, then return
 here to verify the result.
 
 ## After a change
@@ -137,7 +137,7 @@ denied request reports `access denied`.
 ## See also
 
 - [Networking](~peios/reference/netd/introduction/overview)
-- [Configuring profiles](~peios/networking/configuring-profiles)
+- [Configuring profiles](~peios/network-configuration/configuring-profiles)
 - `regman 'Machine\System\Network'` on the machine, for every key netd reads
   and writes.
 - [netd's control
