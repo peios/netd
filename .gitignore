@@ -1,10 +1,13 @@
 /target
-/out
 /fuzz/target
 /fuzz/artifacts
 /fuzz/corpus
 /fuzz/fuzz-*.log
 __pycache__/
-/bazel-*
-/.ci-sdk
 /docs/learn/dist
+
+# pekit build output.
+/pekit-out/
+
+# Libraries pekit fetches for the pins in `pekit.lock`.
+/.gcsl/

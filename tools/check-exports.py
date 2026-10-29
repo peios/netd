@@ -9,7 +9,9 @@ from pathlib import Path
 
 def main() -> None:
     library, expected_file, include = sys.argv[1:]
-    output = subprocess.check_output(["nm", "-D", "--defined-only", library], text=True)
+    output = subprocess.check_output(
+        [os.environ.get("NM", "nm"), "-D", "--defined-only", library], text=True
+    )
     observed = sorted(line.split()[-1] for line in output.splitlines() if line.split())
     expected = sorted(Path(expected_file).read_text().splitlines())
     if observed != expected:

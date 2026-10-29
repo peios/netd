@@ -1,0 +1,64 @@
+# netd's programs and its C client library, each crate compiled on its own
+# (see the rust library's `workspace`), for glibc.
+import "github.com/gcslib/clang"
+import "github.com/gcslib/rust"
+import "github.com/peios/peios-rs" as peios_rs
+
+# Where `netd-client`'s build script is told libnetd is.
+let LIBNETD = "/opt/netd/lib"
+
+# The kernel's sources netd vendors.
+let KERNEL = [{at = "vendor/kernel"; place = dir("vendor/kernel")}]
+
+# The netd workspace, planned. `netd-client` links the C client library,
+# libnetd, so it, and `net`, are given it.
+def crates() -> rust.RustWorkspace {
+    = planned([
+        {
+            package = "netd-client"
+            env = [{key = "PEIOS_NETD_LIB_DIR"; value = LIBNETD}]
+            given = [{at = "{LIBNETD}/libnetd.so"; place = build libnetd()}]
+        },
+    ])
+}
+
+# The workspace without `netd-client`'s settings, which libnetd is built
+# from: libnetd does not link itself.
+def unlinked() -> rust.RustWorkspace {
+    = planned([])
+}
+
+# The netd workspace, planned, with `extra`, settings of further packages.
+# `peios-sys` binds libpeios with bindgen and links it, so it, and every
+# crate that depends on it, is given what peios-rs's library says it needs:
+# libpeios and its headers, built from the Peios SDK's own files.
+# `pnp-core` and `peios-uapi`, the kernel's crates netd vendors, read the
+# kernel's sources beside them.
+fn planned(extra: List<rust.CrateSettings>) -> rust.RustWorkspace {
+    = rust.workspace(
+        dir("."),
+        rust.vendored(file("Cargo.lock")),
+        crates = [
+            ...peios_rs.crate_settings(),
+            {package = "pnp-core"; data = KERNEL},
+            {package = "peios-uapi"; data = KERNEL},
+            ...extra,
+        ],
+        libclang = [clang.libclang_18()],
+    )
+}
+
+# The network daemon.
+def build netd() {
+    = rust.bin(crates(), "netd")
+}
+
+# The operator command, a client of netd's control socket.
+def build net() {
+    = rust.bin(crates(), "net")
+}
+
+# The C client library, `libnetd.so.1` by its soname.
+def build libnetd() {
+    = rust.library(unlinked(), "libnetd")
+}

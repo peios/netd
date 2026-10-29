@@ -20,7 +20,7 @@ Corpora and failure artifacts stay under `fuzz/corpus/` and `fuzz/artifacts/`.
 Preserve a failing input before reducing it, then add a regression test for
 its invariant. A campaign does not replace the deterministic tests.
 
-Bazel's ordinary DHCPv4 and NDP test targets include deterministic generated
-inputs. Set `DHCP_FUZZ_ITERS` or `NDP_FUZZ_ITERS` through `--test_env` to increase
-their counts. These checks exercise decoder bounds, valid lease shapes, and
+The ordinary `dhcp4` and `ndp` tests include deterministic generated inputs.
+Their tests read `DHCP_FUZZ_ITERS` and `NDP_FUZZ_ITERS` to increase the
+counts; set them when running the test programs directly. These checks exercise decoder bounds, valid lease shapes, and
 state-machine behavior under arbitrary messages and monotonic time changes.
