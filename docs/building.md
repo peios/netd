@@ -115,6 +115,24 @@ build whose `Cargo.lock` takes peios-rs's crates at another commit than
 `pekit.lock` pins its library at, so the crates and the settings they are
 built with always agree. authd and eventd take the same peios-rs commit.
 
+## Building against netd
+
+netd is a GCSL library as well as a workspace. A workspace whose crates
+depend on `netd-client` gives it libnetd, which it links, and gives its
+programs libnetd, and the libpeios it loads, when they run:
+
+```text
+import "github.com/peios/netd"
+import "github.com/peios/peios-rs" as peios_rs
+
+rust.workspace(..., crates = [...peios_rs.crate_settings(), ...netd.crate_settings()])
+rust.run_test(test, given = [...peios_rs.runtime(), ...netd.runtime()], env = netd.runtime_env())
+```
+
+`pekit lock` pins netd's commit in the workspace's `pekit.lock`. The rust
+library fails a build whose `Cargo.lock` takes netd's crates at another
+commit than that, so the crate and the libnetd it links always agree.
+
 ## Not built with pekit yet
 
 Packages and builds with the native Peios toolchain, which hardens

@@ -22,13 +22,13 @@ let MEMBERS = ["netd-core", "netd-abi", "libnetd", "netd-client", "dhcp4", "dhcp
 let LIBNETD = "/opt/netd/lib"
 
 # Where the tests find the shared libraries they load.
-let LIBRARIES = [{key = "LD_LIBRARY_PATH"; value = "/opt/peios/lib:{LIBNETD}"}]
+let LIBRARIES = runtime_env()
 
 # What every test is given: libpeios, by its soname, which a program that
 # links it loads (see peios-rs's `runtime`), and libnetd, by its soname,
 # which `netd-client` and `net` load.
 def loaded() -> List<{at: String, place: Dir | File}> {
-    = [...peios_rs.runtime(), {at = "{LIBNETD}/libnetd.so.1"; place = build libnetd()}]
+    = [...peios_rs.runtime(), ...runtime()]
 }
 
 # Runs each of `tests`, given `given`.
