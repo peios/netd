@@ -1,7 +1,0 @@
-target
-out
-fuzz/target
-fuzz/corpus
-fuzz/artifacts
-docs/learn/dist
-.ci-sdk
