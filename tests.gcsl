@@ -1,0 +1,177 @@
+# netd's tests: each member's unit and integration tests, as `cargo test
+# -p` builds them, the C client's ABI and exports, each member's
+# documentation tests, as `cargo test --doc` runs them, Clippy's checks, as
+# `cargo clippy --all-targets -- -Dwarnings` makes them, and the client
+# crate's documentation, as `cargo doc` makes it with warnings denied.
+#
+# A test's own code runs in a hermetic step of its own, so what it plans,
+# builds or fetches is in its parameters' defaults.
+import fs
+import toolchain
+import Toolchain from toolchain
+import "github.com/gcslib/python"
+import "github.com/gcslib/rust"
+import "github.com/peios/peios-rs" as peios_rs
+
+# The members of the workspace, each a directory of the same name. The
+# kernel's crates it vendors, `pnp-core` and `peios-uapi`, are members too,
+# but are the kernel's to test and check.
+let MEMBERS = ["netd-core", "netd-abi", "libnetd", "netd-client", "dhcp4", "dhcp6", "ndp", "netd", "net"]
+
+# Where libnetd is placed, as `build.gcsl` places it for `netd-client`.
+let LIBNETD = "/opt/netd/lib"
+
+# Where the tests find the shared libraries they load.
+let LIBRARIES = [{key = "LD_LIBRARY_PATH"; value = "/opt/peios/lib:{LIBNETD}"}]
+
+# What every test is given: libpeios, by its soname, which a program that
+# links it loads (see peios-rs's `runtime`), and libnetd, by its soname,
+# which `netd-client` and `net` load.
+def loaded() -> List<{at: String, place: Dir | File}> {
+    = [...peios_rs.runtime(), {at = "{LIBNETD}/libnetd.so.1"; place = build libnetd()}]
+}
+
+# Runs each of `tests`, given `given`.
+fn ran(tests: List<rust.RustTest>, given: List<{at: String, place: Dir | File}>) -> {} {
+    let each = for test in tests { = rust.run_test(test, given = given, env = LIBRARIES) }
+}
+
+# `netd-core`'s, with its `policy` feature, as netd and libnetd build it:
+# its policy boundaries need it.
+def test netd_core(
+    tests: List<rust.RustTest> = rust.tests(crates(), "netd-core", features = ["policy"]),
+    given: List<{at: String, place: Dir | File}> = loaded(),
+) {
+    = ran(tests, given)
+}
+
+def test netd_abi(tests: List<rust.RustTest> = rust.tests(crates(), "netd-abi"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test libnetd(tests: List<rust.RustTest> = rust.tests(crates(), "libnetd"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test netd_client(tests: List<rust.RustTest> = rust.tests(crates(), "netd-client"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test dhcp4(tests: List<rust.RustTest> = rust.tests(crates(), "dhcp4"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test dhcp6(tests: List<rust.RustTest> = rust.tests(crates(), "dhcp6"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test ndp(tests: List<rust.RustTest> = rust.tests(crates(), "ndp"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test netd(tests: List<rust.RustTest> = rust.tests(crates(), "netd"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+def test net(tests: List<rust.RustTest> = rust.tests(crates(), "net"), given: List<{at: String, place: Dir | File}> = loaded()) {
+    = ran(tests, given)
+}
+
+# The features each member is checked with: `netd-core`'s `policy`, which
+# netd and libnetd turn on, as a check of the whole workspace has it.
+fn features_of(member: String): List<String> {
+    = if member == "netd-core" { ["policy"] } else { [] }
+}
+
+# Each member's documentation tests.
+def test doctests(
+    ran: List<List<{}>> = for each in MEMBERS {
+        = rust.doctests(crates(), each, features = features_of(each), given = loaded(), env = LIBRARIES)
+    },
+) {}
+
+# Clippy's checks of each member, every warning denied.
+def test clippy(
+    checked: List<List<{}>> = for each in MEMBERS { = rust.clippy(crates(), each, features = features_of(each), flags = ["-Dwarnings"]) },
+) {}
+
+# The client crate's documentation, every warning denied.
+def test api_docs(docs: Dir = rust.docs(crates(), "netd-client", flags = ["-Dwarnings"])) {}
+
+# The tool `name` of the C toolchain `c`, by its path in a sandbox that has
+# the toolchain at `/opt/cc`: `x86_64-linux-nm` beside `x86_64-linux-gcc`.
+fn tool(c: toolchain.CToolchain, name: String): String {
+    let cc = c.cc.path.strip_prefix(c.root.path).strip_prefix("/")
+    = "/opt/cc/{cc.strip_suffix("gcc")}{name}"
+}
+
+# The C client's ABI: a C program that includes its public header and links
+# it calls it, run against libnetd by its soname.
+def test abi(
+    library: File = build libnetd(),
+    libpeios: List<{at: String, place: Dir | File}> = peios_rs.runtime(),
+    include: Dir = dir("libnetd/include"),
+    source: File = file("libnetd/tests/abi.c"),
+    c: toolchain.CToolchain = toolchain.get(Toolchain::C),
+) {
+    let home = working_dir().path
+    let made = fs.mkdir("{home}/out")
+    let placed: List<{at: String, place: Dir | File | FileSet}> = [
+        {at = "/"; place = c.runtime},
+        {at = "/opt/cc"; place = c.root},
+        {at = "/work/out"; place = dir("{home}/out")},
+        {at = "/work/include"; place = include},
+        {at = "/work/abi.c"; place = source},
+        {at = "{LIBNETD}/libnetd.so"; place = library},
+        {at = "{LIBNETD}/libnetd.so.1"; place = library},
+        ...(for each in libpeios { = {at = each.at; place = each.place} }),
+    ]
+    let box = fs.compose(placed).sandbox(cwd = "/work", env = {LD_LIBRARY_PATH = "/opt/peios/lib:{LIBNETD}"})
+    let compiled = box.exec(
+        tool(c, "gcc"),
+        "-UNDEBUG",
+        "-I/work/include",
+        "/work/abi.c",
+        "-o",
+        "/work/out/abi",
+        "-L{LIBNETD}",
+        "-Wl,-rpath-link,/opt/peios/lib",
+        "-lnetd",
+    )
+    let ran = box.exec("/work/out/abi")
+}
+
+# The C client's exports: exactly those `exports.txt` lists, and its public
+# header valid C++, as `tools/check-exports.py` checks them.
+def test exports(
+    library: File = build libnetd(),
+    exports: File = file("libnetd/exports.txt"),
+    include: Dir = dir("libnetd/include"),
+    checker: File = file("tools/check-exports.py"),
+    c: toolchain.CToolchain = toolchain.get(Toolchain::C),
+    py: python.PythonToolchain = toolchain.get(Toolchain::Python),
+) {
+    let box = fs.compose([
+        {at = "/"; place = c.runtime},
+        {at = "/opt/cc"; place = c.root},
+        {at = "/opt/python"; place = py.root},
+        {at = "/work/libnetd.so"; place = library},
+        {at = "/work/exports.txt"; place = exports},
+        {at = "/work/include"; place = include},
+        {at = "/work/check-exports.py"; place = checker},
+    ]).sandbox(
+        cwd = "/work",
+        env = {
+            NM = tool(c, "nm")
+            CXX = tool(c, "g++")
+            PATH = "/opt/cc/bin:/opt/python/bin"
+        },
+    )
+    let ran = box.exec(
+        "/opt/python/bin/python3",
+        "/work/check-exports.py",
+        "/work/libnetd.so",
+        "/work/exports.txt",
+        "/work/include",
+    )
+}

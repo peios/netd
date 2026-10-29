@@ -130,12 +130,10 @@ def export_files(kernel_root: Path, commit: str, destination: Path) -> dict[str,
     }
 
 
-def load_origin(snapshot: Path, *, allow_legacy: bool, bazel_inputs: bool) -> dict[str, Any]:
+def load_origin(snapshot: Path, *, allow_legacy: bool) -> dict[str, Any]:
     """Validate the metadata before using any of its paths or hashes."""
     origin = snapshot / "ORIGIN.json"
-    if (
-        not bazel_inputs and (snapshot.is_symlink() or origin.is_symlink())
-    ) or not origin.is_file():
+    if snapshot.is_symlink() or origin.is_symlink() or not origin.is_file():
         raise SnapshotError("snapshot and ORIGIN.json must be real directories/files")
     try:
         data = json.loads(origin.read_text())
@@ -167,18 +165,12 @@ def load_origin(snapshot: Path, *, allow_legacy: bool, bazel_inputs: bool) -> di
     return data
 
 
-def check_snapshot(
-    snapshot: Path, *, allow_legacy: bool = False, bazel_inputs: bool = False
-) -> dict[str, Any]:
+def check_snapshot(snapshot: Path, *, allow_legacy: bool = False) -> dict[str, Any]:
     """Verify the file set, hashes and Git modes; do not trust symlink targets."""
-    data = load_origin(snapshot, allow_legacy=allow_legacy, bazel_inputs=bazel_inputs)
+    data = load_origin(snapshot, allow_legacy=allow_legacy)
     actual = set()
     for path in snapshot.rglob("*"):
         mode = path.lstat().st_mode
-        if stat.S_ISLNK(mode) and bazel_inputs and path.is_file():
-            # Bazel file symlinks are declared input transport. Directory links
-            # remain forbidden so no hidden subtree can bypass file-set checks.
-            mode = path.stat().st_mode
         if stat.S_ISLNK(mode) or not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
             raise SnapshotError(f"snapshot contains a nonregular input: {path}")
         if stat.S_ISREG(mode) and path != snapshot / "ORIGIN.json":
@@ -197,10 +189,8 @@ def check_snapshot(
             raise SnapshotError(f"kernel-owned input was changed: {name}")
         # Git records executable status, not checkout permissions from umask.
         expected_mode = data.get("file_modes", {}).get(name)
-        if (
-            expected_mode
-            and not bazel_inputs
-            and bool(path.stat().st_mode & stat.S_IXUSR) != (expected_mode == "100755")
+        if expected_mode and bool(path.stat().st_mode & stat.S_IXUSR) != (
+            expected_mode == "100755"
         ):
             raise SnapshotError(f"kernel-owned file mode was changed: {name}")
     for root in data["paths"]:
@@ -257,11 +247,6 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("check", help="check the stored hashes, modes and exact file set")
     check.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
-    check.add_argument(
-        "--bazel-inputs",
-        action="store_true",
-        help="verify declared runfiles hashes/set while allowing file symlinks and cache modes",
-    )
     update = commands.add_parser("update", help="replace inputs with an exact local kernel commit")
     update.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
     update.add_argument("--kernel-root", type=Path, required=True)
@@ -269,7 +254,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "check":
-            result = check_snapshot(args.snapshot, bazel_inputs=args.bazel_inputs)
+            result = check_snapshot(args.snapshot)
         else:
             result = update_snapshot(args.kernel_root, args.commit, args.snapshot)
     except (OSError, SnapshotError) as error:
