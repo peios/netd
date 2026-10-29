@@ -77,13 +77,23 @@ def test net(tests: List<rust.RustTest> = rust.tests(crates(), "net"), given: Li
     = ran(tests, given)
 }
 
+# The features each member is checked with: `netd-core`'s `policy`, which
+# netd and libnetd turn on, as a check of the whole workspace has it.
+fn features_of(member: String): List<String> {
+    = if member == "netd-core" { ["policy"] } else { [] }
+}
+
 # Each member's documentation tests.
 def test doctests(
-    ran: List<List<{}>> = for each in MEMBERS { = rust.doctests(crates(), each, given = loaded(), env = LIBRARIES) },
+    ran: List<List<{}>> = for each in MEMBERS {
+        = rust.doctests(crates(), each, features = features_of(each), given = loaded(), env = LIBRARIES)
+    },
 ) {}
 
 # Clippy's checks of each member, every warning denied.
-def test clippy(checked: List<List<{}>> = for each in MEMBERS { = rust.clippy(crates(), each, flags = ["-Dwarnings"]) }) {}
+def test clippy(
+    checked: List<List<{}>> = for each in MEMBERS { = rust.clippy(crates(), each, features = features_of(each), flags = ["-Dwarnings"]) },
+) {}
 
 # The client crate's documentation, every warning denied.
 def test api_docs(docs: Dir = rust.docs(crates(), "netd-client", flags = ["-Dwarnings"])) {}
