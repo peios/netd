@@ -13,6 +13,7 @@ use netd_abi as abi;
 pub use netd_core::{DnsScope, InterfaceStatus, LeaseStatus, Level, Snapshot, Status};
 pub use netd_core::profile::{AddressConfig, DnsConfig, OnExpiry, Profile, StaticAddress};
 pub use netd_core::raw::{RawKey, RawValue};
+pub use netd_core::hostname::HOSTNAME_VALUE;
 pub use netd_core::{CONTROL_SOCKET_PATH, NETWORK_KEY};
 
 mod decode;
