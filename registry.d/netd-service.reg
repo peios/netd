@@ -27,6 +27,13 @@
     "the control object decides what they may do), so the one peinit applies",
     "is replaced -- the same arrangement lpsd has, recorded there.",
     "",
+    "The required netd-state ProvisionedPaths entry has peinit create",
+    "/var/state/netd before phase 2 for persistent network identity state.",
+    "The image or installer supplies /var/state. Security is this binary",
+    "self-relative descriptor: SYSTEM owns it; SYSTEM and Administrators",
+    "have full access, inherited by files and directories:",
+    "O:SYG:SYD:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)",
+    "",
     "RestartPolicy is Always (2). A network manager that has exited is a",
     "machine whose leases will silently expire. A restart keeps each leased",
     "IPv4 address and its netd-owned routes in place while the new process's",
@@ -38,6 +45,17 @@
   ],
   "keys": [
     { "path": "Machine\\System" },
+    { "path": "Machine\\System\\Init" },
+    { "path": "Machine\\System\\Init\\ProvisionedPaths" },
+    {
+      "path": "Machine\\System\\Init\\ProvisionedPaths\\netd-state",
+      "values": [
+        { "name": "Kind", "type": "sz", "data": "directory" },
+        { "name": "Path", "type": "sz", "data": "/var/state/netd" },
+        { "name": "Security", "type": "binary", "data": "010004901400000020000000000000002c00000001010000000000051200000001010000000000051200000002003400020000000003140000000010010100000000000512000000000318000000001001020000000000052000000020020000" },
+        { "name": "Required", "type": "dword", "data": 1 }
+      ]
+    },
     { "path": "Machine\\System\\Services" },
     {
       "path": "Machine\\System\\Services\\netd",
