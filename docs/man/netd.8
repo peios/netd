@@ -33,6 +33,10 @@ and the resolver integration.
 .TP
 .I /var/state/netd
 Persistent network and interface identity state.
+The netd-service.reg seed declares this as the required netd-state
+ProvisionedPaths entry. peinit creates it before phase 2 with a SYSTEM-owned,
+protected inheritable descriptor granting full control only to SYSTEM and
+Administrators. The image or installer must supply /var/state.
 .TP
 .I /usr/share/regman/netd.regman
 Machine-readable registry reference installed by the package.

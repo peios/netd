@@ -22,6 +22,18 @@ The netd package ships its service definition as a registry seed,
 | `RestartPolicy` | `2` (Always) | a stopped network manager is a machine whose leases silently expire |
 | `ErrorControl` | `0` | |
 
+The same seed declares `/var/state/netd` as the required `netd-state`
+entry under `Machine\System\Init\ProvisionedPaths`. peinit creates it
+before phase 2 with a SYSTEM-owned, protected inheritable descriptor
+granting full control to SYSTEM and Administrators:
+
+```text
+O:SYG:SYD:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)
+```
+
+The image or installer supplies `/var/state`; peinit does not create
+unnamed parents.
+
 A second seed, `netd-default-profile.reg`, ships the baseline policy: the
 profile `default` and the rule `wired` (§3.1). It is separate so an image can
 run netd without agreeing that every wired interface joins whatever it is
