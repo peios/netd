@@ -29,7 +29,7 @@ publish = false
 
 [workspace.dependencies]
 libc = "0.2"
-peios = { git = "https://github.com/peios/peios-rs.git", rev = "3950d35950c46cb3538885b7cf05bde059393def", package = "peios" }
+peios = { git = "https://github.com/peios/peios-rs.git", rev = "7c05d93e82ddeae7c9c16c4bb21cfe5e5416ca7e", package = "peios" }
 # The interface layer is a PNP rules forest; netd builds and judges it with
 # the kernel's own rules engine so the two cannot disagree about a rule.
 # Exact kernel-owned inputs and licenses are recorded in vendor/kernel/ORIGIN.json.
