@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "dhcp4"
-version = "0.1.0"
+version = "0.1.8"
 
 [[package]]
 name = "dhcp4-fuzz"
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "dhcp6"
-version = "0.1.0"
+version = "0.1.8"
 
 [[package]]
 name = "digest"
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "ndp"
-version = "0.1.0"
+version = "0.1.8"
 dependencies = [
  "sha1",
 ]
